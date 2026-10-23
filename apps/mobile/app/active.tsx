@@ -192,7 +192,9 @@ export default function ActiveWalkScreen() {
           status={returnSafetyStatus}
           action={recommendedReturnAction}
           message={returnSafetyMessage}
-          safetyMarginSeconds={remainingSeconds - (route?.calibratedDurationSeconds || 300)}
+          safetyMarginSeconds={
+            remainingSeconds - (returnRoute?.calibratedDurationSeconds ?? 0)
+          }
         />
       </View>
 

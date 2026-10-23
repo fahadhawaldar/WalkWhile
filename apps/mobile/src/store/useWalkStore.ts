@@ -113,11 +113,14 @@ export const useWalkStore = create<WalkStoreState>((set, get) => ({
   },
 
   tickSecond: () => {
-    const { activeState, remainingSeconds, elapsedSeconds } = get();
+    const { activeState, startTime, availableMinutes } = get();
     if (activeState !== 'walking' && activeState !== 'returning') return;
+    if (startTime === null) return;
 
-    const nextRemaining = Math.max(0, remainingSeconds - 1);
-    const nextElapsed = elapsedSeconds + 1;
+    // Derive from wall-clock time so the countdown stays accurate even when
+    // interval ticks are paused (app backgrounded, JS thread busy).
+    const nextElapsed = Math.floor((Date.now() - startTime) / 1000);
+    const nextRemaining = Math.max(0, availableMinutes * 60 - nextElapsed);
 
     set({
       elapsedSeconds: nextElapsed,
