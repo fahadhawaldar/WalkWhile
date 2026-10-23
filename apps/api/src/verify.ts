@@ -11,6 +11,8 @@ async function verify() {
     walkingSpeedKmh: 5,
     safetyBufferMinutes: 2.5,
     maxRoutes: 3,
+    waitType: 'fixed',
+    maxReturnMinutes: 3,
   });
 
   console.log('Result Count:', genResult.count);

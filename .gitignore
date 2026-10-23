@@ -9,3 +9,7 @@ coverage
 .expo
 .expo-shared
 web-build
+
+# OpenStreetMap source extracts (large, re-downloadable)
+data/raw/
+data/graphs/

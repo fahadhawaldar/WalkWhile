@@ -1,17 +1,33 @@
+import { existsSync } from 'node:fs';
 import { config } from '../config/env.js';
+import { WalkGraph } from '../graph/walkGraph.js';
 import { MockRoutingProvider } from './mockProvider.js';
 import { OpenRouteServiceProvider } from './openrouteservice.js';
+import { OsmGraphProvider } from './osmGraphProvider.js';
 import { IRoutingProvider } from './types.js';
 
 export * from './types.js';
 export * from './openrouteservice.js';
 export * from './mockProvider.js';
+export * from './osmGraphProvider.js';
 
 let defaultProviderInstance: IRoutingProvider | null = null;
 
 export function getRoutingProvider(): IRoutingProvider {
   if (defaultProviderInstance) {
     return defaultProviderInstance;
+  }
+
+  if (config.ROUTING_PROVIDER === 'osm') {
+    if (existsSync(config.GRAPH_PATH)) {
+      defaultProviderInstance = new OsmGraphProvider(
+        WalkGraph.load(config.GRAPH_PATH)
+      );
+      return defaultProviderInstance;
+    }
+    console.warn(
+      `[RoutingProvider] Pedestrian graph not found at ${config.GRAPH_PATH}. Run apps/api/scripts/prepareOsm.sh to build it. Falling back to MockRoutingProvider.`
+    );
   }
 
   if (

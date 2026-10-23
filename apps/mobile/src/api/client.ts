@@ -1,5 +1,5 @@
 import {
-  GenerateRoutesRequest,
+  GenerateRoutesRequestInput,
   GenerateRoutesResponse,
   ReturnRouteRequest,
   ReturnRouteResponse,
@@ -37,7 +37,7 @@ export class WalkWhileApiClient {
   }
 
   static async generateRoutes(
-    params: GenerateRoutesRequest
+    params: GenerateRoutesRequestInput
   ): Promise<GenerateRoutesResponse> {
     return this.post<GenerateRoutesResponse>('/api/v1/routes/generate', params);
   }

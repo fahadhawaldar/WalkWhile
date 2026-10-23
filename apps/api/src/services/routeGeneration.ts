@@ -4,7 +4,11 @@ import {
   GenerateRoutesResponse,
   WalkingRoute,
 } from '@walkwhile/shared';
-import { getRoutingProvider, IRoutingProvider } from '../providers/index.js';
+import {
+  getRoutingProvider,
+  IRoutingProvider,
+  ProviderRouteCandidate,
+} from '../providers/index.js';
 import { haversineDistance, projectCoordinate } from '../utils/geo.js';
 import { filterDiverseCandidates } from './routeDiversity.js';
 import {
@@ -31,6 +35,10 @@ export async function generateWalkingRoutes(
   });
 
   const { targetDistanceMeters, walkingBudgetMinutes } = budget;
+
+  if (provider.planWalkingRoutes) {
+    return planRoutesWithProvider(provider, request, budget);
+  }
 
   // Step 3: Request candidate round-trips using diverse seeds
   const roundTripPromises = CANDIDATE_SEEDS.map((seed) =>
@@ -224,4 +232,135 @@ export async function generateWalkingRoutes(
     warnings,
     disclaimer: DEFAULTS.SAFETY_DISCLAIMER,
   };
+}
+
+// Planned routes should use most of the walking budget; anything shorter
+// than this share of it is not worth suggesting.
+const MIN_BUDGET_USE = { fixed: 0.7, flexible: 0.6 } as const;
+const TARGET_BUDGET_USE = 0.95;
+
+/**
+ * Generation path for providers that plan complete routes themselves
+ * (our own OpenStreetMap graph). Candidates still pass the same origin,
+ * budget and diversity checks as the seed-based path.
+ */
+async function planRoutesWithProvider(
+  provider: IRoutingProvider,
+  request: GenerateRoutesRequest,
+  budget: ReturnType<typeof calculateTimeBudget>
+): Promise<GenerateRoutesResponse> {
+  const { walkingSpeedKmh, safetyBufferMinutes, availableMinutes, waitType } =
+    request;
+
+  // Longest distance whose calibrated duration still fits the budget.
+  const secondsPerMeter =
+    3.6 / walkingSpeedKmh +
+    DEFAULTS.PEDESTRIAN_INTERSECTION_ALLOWANCE_PER_KM_SECONDS / 1000;
+  const maxDistanceMeters = Math.floor(
+    (budget.walkingBudgetMinutes * 60) / secondsPerMeter - 1
+  );
+  const metersPerMinute = (walkingSpeedKmh * 1000) / 60;
+
+  const plan = await provider.planWalkingRoutes!({
+    origin: request.origin,
+    targetDistanceMeters: maxDistanceMeters * TARGET_BUDGET_USE,
+    minDistanceMeters: maxDistanceMeters * MIN_BUDGET_USE[waitType],
+    maxDistanceMeters,
+    maxReturnDistanceMeters:
+      waitType === 'flexible'
+        ? request.maxReturnMinutes * metersPerMinute
+        : undefined,
+  });
+
+  const valid: WalkingRoute[] = [];
+  plan.candidates.forEach((raw, i) => {
+    const route = toWalkingRoute(raw, request, i);
+    if (route) valid.push(route);
+  });
+
+  const routes = filterDiverseCandidates(
+    valid,
+    request.maxRoutes,
+    DEFAULTS.MAX_ROUTE_OVERLAP_RATIO
+  );
+
+  const warnings = [...plan.warnings];
+  if (routes.some((r) => r.type === 'out_and_back')) {
+    warnings.push(
+      'Some routes are out-and-back paths due to limited pedestrian loop connectivity in this area.'
+    );
+  }
+
+  let message: string | undefined;
+  if (routes.length === 0) {
+    message =
+      'No suitable pedestrian routes could be confidently generated within your time budget and safety margin for this location. Consider increasing available time or moving closer to pedestrian-accessible walkways.';
+  } else if (routes.length < request.maxRoutes) {
+    message = `Generated ${routes.length} route(s). Fewer than ${request.maxRoutes} were returned to prevent redundant or unsafe paths.`;
+  }
+
+  return {
+    request,
+    origin: request.origin,
+    walkingBudgetMinutes: budget.walkingBudgetMinutes,
+    targetDistanceMeters: budget.targetDistanceMeters,
+    routes,
+    count: routes.length,
+    message,
+    warnings,
+    disclaimer: DEFAULTS.SAFETY_DISCLAIMER,
+  };
+
+  function toWalkingRoute(
+    raw: ProviderRouteCandidate,
+    req: GenerateRoutesRequest,
+    index: number
+  ): WalkingRoute | null {
+    const coords = raw.geometry.coordinates;
+    if (coords.length < 3) return null;
+    if (
+      haversineDistance(coords[0], req.origin) >
+        DEFAULTS.MAX_ORIGIN_DISTANCE_METERS ||
+      haversineDistance(coords[coords.length - 1], req.origin) >
+        DEFAULTS.MAX_ORIGIN_DISTANCE_METERS
+    ) {
+      return null;
+    }
+
+    const calibrated = calibrateRouteDuration(
+      raw.distanceMeters,
+      walkingSpeedKmh
+    );
+    if (!isRouteWithinBudget(calibrated, safetyBufferMinutes, availableMinutes)) {
+      return null;
+    }
+
+    const maxReturnSeconds =
+      raw.maxReturnDistanceMeters === undefined
+        ? undefined
+        : calibrateRouteDuration(raw.maxReturnDistanceMeters, walkingSpeedKmh);
+    const minutes = Math.round(calibrated / 60);
+    const km = (raw.distanceMeters / 1000).toFixed(1);
+    const shape = raw.type === 'loop' ? 'Loop' : 'Out-and-back';
+    const nearby =
+      maxReturnSeconds === undefined
+        ? ''
+        : ` · never more than ${Math.max(1, Math.ceil(maxReturnSeconds / 60))} min from start`;
+
+    return {
+      id: `route_${raw.type}_${Date.now()}_${index + 1}`,
+      type: raw.type,
+      geometry: raw.geometry,
+      distanceMeters: Math.round(raw.distanceMeters),
+      durationSeconds: raw.durationSeconds,
+      calibratedDurationSeconds: calibrated,
+      instructions: raw.instructions,
+      warnings:
+        raw.type === 'out_and_back'
+          ? ['Out-and-back route along the same pedestrian corridor.']
+          : [],
+      summary: `${shape} (~${km} km, ~${minutes} min)${nearby}`,
+      maxReturnSeconds,
+    };
+  }
 }

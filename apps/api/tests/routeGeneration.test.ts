@@ -19,6 +19,8 @@ describe('Route Generation Service', () => {
       walkingSpeedKmh: 5,
       safetyBufferMinutes: 2.5,
       maxRoutes: 3,
+      waitType: 'fixed',
+      maxReturnMinutes: 3,
     };
 
     const result = await generateWalkingRoutes(request, provider);
@@ -66,6 +68,8 @@ describe('Route Generation Service', () => {
       walkingSpeedKmh: 5,
       safetyBufferMinutes: 2.5,
       maxRoutes: 3,
+      waitType: 'fixed',
+      maxReturnMinutes: 3,
     };
 
     const result = await generateWalkingRoutes(request, provider);
@@ -87,6 +91,8 @@ describe('Route Generation Service', () => {
       walkingSpeedKmh: 5,
       safetyBufferMinutes: 2.5,
       maxRoutes: 3,
+      waitType: 'fixed',
+      maxReturnMinutes: 3,
     };
 
     const result = await generateWalkingRoutes(request, provider);

@@ -33,7 +33,12 @@ export async function handleGenerateRoutes(
 
     res.status(statusCode).json({
       error: {
-        code: statusCode === 502 ? 'UPSTREAM_ROUTING_ERROR' : 'INTERNAL_SERVER_ERROR',
+        code:
+          statusCode === 502
+            ? 'UPSTREAM_ROUTING_ERROR'
+            : statusCode === 422
+              ? 'UNROUTABLE_LOCATION'
+              : 'INTERNAL_SERVER_ERROR',
         message: error.message || 'An error occurred while generating walking routes',
         details: error.details,
       },

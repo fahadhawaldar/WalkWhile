@@ -29,13 +29,29 @@ export const GenerateRoutesRequestSchema = z
       .max(15, 'Safety buffer cannot exceed 15 minutes')
       .default(2.5),
     maxRoutes: z.number().int().min(1).max(5).default(3),
+    /**
+     * fixed: the wait ends at a known time (air fryer, laundry), so use it all.
+     * flexible: the wait might end early (a friend on the way), so stay close.
+     */
+    waitType: z.enum(['fixed', 'flexible']).default('fixed'),
+    /** Flexible waits: the furthest the walker should get, in minutes back. */
+    maxReturnMinutes: z
+      .number()
+      .min(1, 'Max return time must be at least 1 minute')
+      .max(15, 'Max return time cannot exceed 15 minutes')
+      .default(3),
   })
   .refine((data) => data.safetyBufferMinutes < data.availableMinutes, {
     message: 'Safety buffer must be less than available time',
     path: ['safetyBufferMinutes'],
   });
 
+/** A validated request, with defaults applied. */
 export type GenerateRoutesRequest = z.infer<typeof GenerateRoutesRequestSchema>;
+/** What clients send; fields with defaults may be omitted. */
+export type GenerateRoutesRequestInput = z.input<
+  typeof GenerateRoutesRequestSchema
+>;
 
 export interface GenerateRoutesResponse {
   request: GenerateRoutesRequest;

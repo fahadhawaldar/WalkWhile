@@ -2,6 +2,8 @@ import { GeoJSONLineString } from './coordinates.js';
 
 export type RouteType = 'loop' | 'out_and_back';
 
+export type WaitType = 'fixed' | 'flexible';
+
 export interface RouteStep {
   instruction: string;
   distanceMeters: number;
@@ -22,6 +24,8 @@ export interface WalkingRoute {
   warnings: string[];
   overlapScore?: number;
   summary?: string;
+  /** Longest calibrated walk back to the start from any point on the route. */
+  maxReturnSeconds?: number;
 }
 
 export type ActiveWalkState =

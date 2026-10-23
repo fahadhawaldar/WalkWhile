@@ -13,6 +13,24 @@ export interface ProviderRouteCandidate {
   type: RouteType;
   seed?: number;
   providerRaw?: unknown;
+  /** Longest walking distance back to the start from any point on the route. */
+  maxReturnDistanceMeters?: number;
+}
+
+export interface ProviderPlanParams {
+  origin: Coordinate;
+  /** Length to aim for. */
+  targetDistanceMeters: number;
+  minDistanceMeters: number;
+  maxDistanceMeters: number;
+  /** Flexible waits: never take the walker further than this from the start. */
+  maxReturnDistanceMeters?: number;
+}
+
+export interface ProviderPlanResult {
+  /** Best first. */
+  candidates: ProviderRouteCandidate[];
+  warnings: string[];
 }
 
 export interface ProviderRoundTripParams {
@@ -55,4 +73,10 @@ export interface IRoutingProvider {
   calculateReturnRoute(
     params: ProviderReturnParams
   ): Promise<ProviderRouteCandidate>;
+
+  /**
+   * Plans complete walking routes in one call. Providers that implement this
+   * are used instead of the seed-based generateRoundTrip/generateOutAndBack.
+   */
+  planWalkingRoutes?(params: ProviderPlanParams): Promise<ProviderPlanResult>;
 }
