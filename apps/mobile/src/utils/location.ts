@@ -74,3 +74,18 @@ export function formatDuration(seconds: number): string {
   const remainingMins = mins % 60;
   return `${hrs}h ${remainingMins}m`;
 }
+
+const EARTH_RADIUS_METERS = 6371000;
+
+/** Great-circle distance between two coordinates, in meters. */
+export function distanceBetween(a: Coordinate, b: Coordinate): number {
+  const toRad = Math.PI / 180;
+  const dLat = (b.latitude - a.latitude) * toRad;
+  const dLon = (b.longitude - a.longitude) * toRad;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(a.latitude * toRad) *
+      Math.cos(b.latitude * toRad) *
+      Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_RADIUS_METERS * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}

@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -20,8 +21,11 @@ import {
   Plus,
   Settings,
   ShieldCheck,
+  Timer,
+  Users,
   Zap,
 } from 'lucide-react-native';
+import { WaitType } from '@walkwhile/shared';
 import { WalkWhileApiClient } from '../src/api/client';
 import { useWalkStore } from '../src/store/useWalkStore';
 import { COLORS } from '../src/theme/colors';
@@ -30,6 +34,26 @@ import {
   PRESET_LOCATIONS,
   formatDistance,
 } from '../src/utils/location';
+
+const WAIT_TYPES: Array<{
+  value: WaitType;
+  title: string;
+  subtitle: string;
+  Icon: typeof Timer;
+}> = [
+  {
+    value: 'fixed',
+    title: 'Exact time',
+    subtitle: 'Air fryer, laundry, parking',
+    Icon: Timer,
+  },
+  {
+    value: 'flexible',
+    title: 'Someone is coming',
+    subtitle: 'Stay close in case they are early',
+    Icon: Users,
+  },
+];
 
 const QUICK_MINUTES = [5, 10, 15, 20, 30, 45];
 const SPEED_OPTIONS = [
@@ -55,11 +79,17 @@ export default function HomeScreen() {
     safetyBufferMinutes,
     setSafetyBufferMinutes,
     setGeneratedRoutes,
+    waitType,
+    setWaitType,
+    maxReturnMinutes,
+    simulateWalk,
+    setSimulateWalk,
   } = useWalkStore();
 
   const [isLoadingGps, setIsLoadingGps] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [usingGps, setUsingGps] = useState(false);
 
   // Calculate live preview metrics
   const budgetMinutes = Math.max(0, availableMinutes - safetyBufferMinutes);
@@ -67,29 +97,44 @@ export default function HomeScreen() {
     (walkingSpeedKmh * 1000 * budgetMinutes) / 60
   );
 
-  const handleUseCurrentLocation = async () => {
+  const handleUseCurrentLocation = async (silent = false) => {
     setIsLoadingGps(true);
     const loc = await getCurrentLocation();
     setIsLoadingGps(false);
     if (loc) {
       setOrigin(loc);
-    } else {
+      setUsingGps(true);
+    } else if (!silent) {
       Alert.alert(
         'GPS Unavailable',
-        'Could not obtain current location. Using default location preset instead.'
+        'Could not get your current location. Check that location access is allowed for WalkWhile.'
       );
     }
   };
 
+  // You are standing where the walk starts, so locate right away.
+  useEffect(() => {
+    handleUseCurrentLocation(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Without a GPS fix the origin is only a placeholder; developers may use
+  // the preset test locations instead.
+  const hasLocation = usingGps || (__DEV__ && !isLoadingGps);
+
   const handleGenerate = async () => {
     setIsGenerating(true);
     try {
+      // Read the latest settings so a just-arrived GPS fix is never missed.
+      const state = useWalkStore.getState();
       const response = await WalkWhileApiClient.generateRoutes({
-        origin,
-        availableMinutes,
-        walkingSpeedKmh,
-        safetyBufferMinutes,
+        origin: state.origin,
+        availableMinutes: state.availableMinutes,
+        walkingSpeedKmh: state.walkingSpeedKmh,
+        safetyBufferMinutes: state.safetyBufferMinutes,
         maxRoutes: 3,
+        waitType: state.waitType,
+        maxReturnMinutes: state.maxReturnMinutes,
       });
 
       if (!response.routes || response.routes.length === 0) {
@@ -130,6 +175,31 @@ export default function HomeScreen() {
           <Text style={styles.tagline}>
             Turn waiting time into walking opportunities.
           </Text>
+        </View>
+
+        {/* Wait Type */}
+        <View style={styles.waitTypeRow}>
+          {WAIT_TYPES.map(({ value, title, subtitle, Icon }) => {
+            const active = waitType === value;
+            return (
+              <TouchableOpacity
+                key={value}
+                style={[styles.waitTypeCard, active && styles.waitTypeCardActive]}
+                onPress={() => setWaitType(value)}
+                activeOpacity={0.85}
+              >
+                <Icon size={20} color={active ? '#FFFFFF' : COLORS.primary} />
+                <Text style={[styles.waitTypeTitle, active && styles.waitTypeTextActive]}>
+                  {title}
+                </Text>
+                <Text
+                  style={[styles.waitTypeSubtitle, active && styles.waitTypeTextActive]}
+                >
+                  {subtitle}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {/* Available Time Budget Card */}
@@ -191,8 +261,9 @@ export default function HomeScreen() {
           <View style={styles.targetHintRow}>
             <Zap size={14} color={COLORS.accent} />
             <Text style={styles.targetHintText}>
-              Target: ~{formatDistance(targetDistanceMeters)} loop with{' '}
-              {safetyBufferMinutes}m safety cushion
+              {waitType === 'fixed'
+                ? `Target: ~${formatDistance(targetDistanceMeters)} loop with ${safetyBufferMinutes}m safety cushion`
+                : `Small loops, never more than ~${maxReturnMinutes} min from your spot`}
             </Text>
           </View>
         </View>
@@ -206,7 +277,7 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             style={styles.gpsButton}
-            onPress={handleUseCurrentLocation}
+            onPress={() => handleUseCurrentLocation()}
             disabled={isLoadingGps}
           >
             {isLoadingGps ? (
@@ -216,51 +287,64 @@ export default function HomeScreen() {
             )}
             <Text style={styles.gpsButtonText}>
               {isLoadingGps
-                ? 'Detecting GPS...'
-                : 'Use My Current GPS Position'}
+                ? 'Finding you...'
+                : usingGps
+                  ? `Your location (${origin.latitude.toFixed(4)}, ${origin.longitude.toFixed(4)})`
+                  : 'Use My Current Location'}
             </Text>
           </TouchableOpacity>
 
-          <Text style={styles.presetLabel}>Or select test location:</Text>
-          <View style={styles.presetsList}>
-            {PRESET_LOCATIONS.map((preset) => {
-              const isSelected =
-                Math.abs(origin.latitude - preset.coordinate.latitude) <
-                  0.0001 &&
-                Math.abs(origin.longitude - preset.coordinate.longitude) <
-                  0.0001;
+          {__DEV__ && (
+            <>
+              <Text style={styles.presetLabel}>Developer: test locations</Text>
+              <View style={styles.presetsList}>
+                {PRESET_LOCATIONS.map((preset) => {
+                  const isSelected =
+                    Math.abs(origin.latitude - preset.coordinate.latitude) <
+                      0.0001 &&
+                    Math.abs(origin.longitude - preset.coordinate.longitude) <
+                      0.0001;
 
-              return (
-                <TouchableOpacity
-                  key={preset.id}
-                  style={[
-                    styles.presetItem,
-                    isSelected && styles.presetItemActive,
-                  ]}
-                  onPress={() => setOrigin(preset.coordinate)}
-                >
-                  <View style={styles.presetContent}>
-                    <Text
+                  return (
+                    <TouchableOpacity
+                      key={preset.id}
                       style={[
-                        styles.presetName,
-                        isSelected && styles.presetNameActive,
+                        styles.presetItem,
+                        isSelected && styles.presetItemActive,
                       ]}
+                      onPress={() => {
+                        setOrigin(preset.coordinate);
+                        setUsingGps(false);
+                      }}
                     >
-                      {preset.name}
-                    </Text>
-                    <Text style={styles.presetDescription} numberOfLines={1}>
-                      {preset.description}
-                    </Text>
-                  </View>
-                  {isSelected && (
-                    <View style={styles.activeCheck}>
-                      <ShieldCheck size={16} color={COLORS.primary} />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+                      <View style={styles.presetContent}>
+                        <Text
+                          style={[
+                            styles.presetName,
+                            isSelected && styles.presetNameActive,
+                          ]}
+                        >
+                          {preset.name}
+                        </Text>
+                        <Text style={styles.presetDescription} numberOfLines={1}>
+                          {preset.description}
+                        </Text>
+                      </View>
+                      {isSelected && (
+                        <View style={styles.activeCheck}>
+                          <ShieldCheck size={16} color={COLORS.primary} />
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <View style={styles.simulateRow}>
+                <Text style={styles.presetLabel}>Developer: simulate walking</Text>
+                <Switch value={simulateWalk} onValueChange={setSimulateWalk} />
+              </View>
+            </>
+          )}
         </View>
 
         {/* Optional Speed & Safety Settings Accordion */}
@@ -336,9 +420,12 @@ export default function HomeScreen() {
 
         {/* Primary CTA */}
         <TouchableOpacity
-          style={[styles.primaryButton, isGenerating && styles.buttonDisabled]}
+          style={[
+            styles.primaryButton,
+            (isGenerating || !hasLocation) && styles.buttonDisabled,
+          ]}
           onPress={handleGenerate}
-          disabled={isGenerating}
+          disabled={isGenerating || !hasLocation}
           activeOpacity={0.85}
         >
           {isGenerating ? (
@@ -352,7 +439,9 @@ export default function HomeScreen() {
             <View style={styles.buttonRow}>
               <Compass size={22} color="#FFFFFF" strokeWidth={2.5} />
               <Text style={styles.primaryButtonText}>
-                Generate Walking Routes
+                {hasLocation
+                  ? 'Generate Walking Routes'
+                  : 'Finding your location...'}
               </Text>
             </View>
           )}
@@ -516,6 +605,43 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: COLORS.primary,
+  },
+  waitTypeRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  waitTypeCard: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 20,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    gap: 4,
+  },
+  waitTypeCardActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  waitTypeTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    marginTop: 4,
+  },
+  waitTypeSubtitle: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+  },
+  waitTypeTextActive: {
+    color: '#FFFFFF',
+  },
+  simulateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 12,
   },
   presetLabel: {
     fontSize: 11,

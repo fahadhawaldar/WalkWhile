@@ -5,6 +5,7 @@ import {
   DEFAULTS,
   RecommendedReturnAction,
   ReturnRouteStatus,
+  WaitType,
   WalkingRoute,
 } from '@walkwhile/shared';
 import { PRESET_LOCATIONS } from '../utils/location';
@@ -15,6 +16,11 @@ interface WalkStoreState {
   availableMinutes: number;
   walkingSpeedKmh: number;
   safetyBufferMinutes: number;
+  waitType: WaitType;
+  /** Flexible waits: furthest the walker should get, in minutes back. */
+  maxReturnMinutes: number;
+  /** Dev only: move along the route automatically instead of using GPS. */
+  simulateWalk: boolean;
 
   // Generated options
   generatedRoutes: WalkingRoute[];
@@ -39,10 +45,15 @@ interface WalkStoreState {
   setAvailableMinutes: (minutes: number) => void;
   setWalkingSpeedKmh: (speed: number) => void;
   setSafetyBufferMinutes: (buffer: number) => void;
+  setWaitType: (waitType: WaitType) => void;
+  setSimulateWalk: (simulate: boolean) => void;
   setGeneratedRoutes: (routes: WalkingRoute[]) => void;
   setSelectedRouteIndex: (index: number) => void;
   startWalk: () => void;
   tickSecond: () => void;
+  /** Flexible waits: the other person is running late. */
+  extendWalk: (minutes: number) => void;
+  addWalkedDistance: (meters: number) => void;
   triggerReturn: (returnRoute?: WalkingRoute) => void;
   completeWalk: () => void;
   interruptWalk: () => void;
@@ -62,6 +73,9 @@ export const useWalkStore = create<WalkStoreState>((set, get) => ({
   availableMinutes: DEFAULTS.AVAILABLE_MINUTES,
   walkingSpeedKmh: DEFAULTS.WALKING_SPEED_KMH,
   safetyBufferMinutes: DEFAULTS.SAFETY_BUFFER_MINUTES,
+  waitType: 'fixed',
+  maxReturnMinutes: 3,
+  simulateWalk: false,
 
   generatedRoutes: [],
   selectedRouteIndex: 0,
@@ -86,6 +100,8 @@ export const useWalkStore = create<WalkStoreState>((set, get) => ({
     }),
   setWalkingSpeedKmh: (walkingSpeedKmh) => set({ walkingSpeedKmh }),
   setSafetyBufferMinutes: (safetyBufferMinutes) => set({ safetyBufferMinutes }),
+  setWaitType: (waitType) => set({ waitType }),
+  setSimulateWalk: (simulateWalk) => set({ simulateWalk }),
 
   setGeneratedRoutes: (generatedRoutes) =>
     set({
@@ -126,6 +142,18 @@ export const useWalkStore = create<WalkStoreState>((set, get) => ({
       elapsedSeconds: nextElapsed,
       remainingSeconds: nextRemaining,
     });
+  },
+
+  extendWalk: (minutes) => {
+    const { availableMinutes } = get();
+    set({ availableMinutes: availableMinutes + minutes });
+    get().tickSecond();
+  },
+
+  addWalkedDistance: (meters) => {
+    set((state) => ({
+      distanceWalkedMeters: state.distanceWalkedMeters + meters,
+    }));
   },
 
   triggerReturn: (returnRoute) => {

@@ -59,6 +59,11 @@ target 'WalkWhile' do
       target_installation_result.resource_bundle_targets.each do |resource_bundle_target|
         resource_bundle_target.build_configurations.each do |config|
           config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+          # Some resource bundles (react-native-maps privacy manifest) declare
+          # iOS 11, which Xcode 27 rejects. Note: lost on `expo prebuild --clean`.
+          if config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f < 15.1
+            config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.1'
+          end
         end
       end
     end

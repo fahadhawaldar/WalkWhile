@@ -29,6 +29,7 @@ export default function SummaryScreen() {
     activeState,
     elapsedSeconds,
     remainingSeconds,
+    distanceWalkedMeters,
     resetWalk,
   } = useWalkStore();
 
@@ -40,16 +41,7 @@ export default function SummaryScreen() {
     router.replace('/');
   };
 
-  const walkedDistanceMeters = route
-    ? Math.round(
-        route.distanceMeters *
-          Math.min(
-            1,
-            elapsedSeconds / Math.max(1, route.calibratedDurationSeconds)
-          )
-      )
-    : 0;
-
+  const walkedDistanceMeters = Math.round(distanceWalkedMeters);
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <ScrollView

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   Alert,
   StyleSheet,
@@ -7,111 +7,101 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useKeepAwake } from 'expo-keep-awake';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  Square,
-  Undo2,
-} from 'lucide-react-native';
+import { Plus, Square, Undo2, UserCheck } from 'lucide-react-native';
 import { WalkWhileApiClient } from '../src/api/client';
 import { CountdownTimer } from '../src/components/CountdownTimer';
 import { ReturnAlertBanner } from '../src/components/ReturnAlertBanner';
 import { TurnInstructionCard } from '../src/components/TurnInstructionCard';
 import { UniversalMap } from '../src/components/UniversalMap';
+import { useWalkTracking } from '../src/hooks/useWalkTracking';
 import { useWalkStore } from '../src/store/useWalkStore';
 import { COLORS } from '../src/theme/colors';
+import { distanceBetween } from '../src/utils/location';
+import { cancelWalkAlerts, scheduleWalkAlerts } from '../src/utils/notifications';
+
+const RETURN_CHECK_INTERVAL_MS = 15_000;
+// Close enough to the start to count as back.
+const ARRIVED_METERS = 35;
+// Share of the route that must be walked before arriving counts as finishing.
+const MIN_PROGRESS_TO_FINISH = 0.85;
+const OFF_ROUTE_METERS = 50;
+const EXTEND_MINUTES = 5;
 
 export default function ActiveWalkScreen() {
+  useKeepAwake();
   const router = useRouter();
   const {
     origin,
     generatedRoutes,
     selectedRouteIndex,
+    activeState,
+    startTime,
+    availableMinutes,
     remainingSeconds,
-    elapsedSeconds,
-    walkingSpeedKmh,
+    distanceWalkedMeters,
     tickSecond,
     currentPosition,
-    updateCurrentPosition,
     returnRoute,
     returnSafetyStatus,
     recommendedReturnAction,
     returnSafetyMessage,
     safetyBufferMinutes,
+    waitType,
     triggerReturn,
     completeWalk,
     interruptWalk,
+    extendWalk,
     updateReturnAssessment,
   } = useWalkStore();
 
   const route = generatedRoutes[selectedRouteIndex];
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const { progressIndex, offRouteMeters } = useWalkTracking(route);
+  const finished = useRef(false);
 
-  // Active walk tick timer: decrements remainingSeconds every second
+  const finish = useCallback(
+    (completed: boolean) => {
+      if (finished.current) return;
+      finished.current = true;
+      cancelWalkAlerts();
+      if (completed) completeWalk();
+      else interruptWalk();
+      router.replace('/summary');
+    },
+    [completeWalk, interruptWalk, router]
+  );
+
+  // Countdown, derived from the wall clock.
   useEffect(() => {
-    const timer = setInterval(() => {
-      tickSecond();
-    }, 1000);
-
+    const timer = setInterval(tickSecond, 1000);
     return () => clearInterval(timer);
   }, [tickSecond]);
 
-  // Simulate GPS position moving along the route coordinates
+  // Pocket alerts; rescheduled when the walk is extended.
   useEffect(() => {
-    if (!route || !route.geometry || route.geometry.coordinates.length === 0)
-      return;
+    if (startTime === null) return;
+    scheduleWalkAlerts({ startTime, availableMinutes, safetyBufferMinutes });
+  }, [startTime, availableMinutes, safetyBufferMinutes]);
 
-    const coords = route.geometry.coordinates;
-    const totalPoints = coords.length;
-    const totalEstimatedSeconds = Math.max(1, route.calibratedDurationSeconds);
+  useEffect(() => () => {
+    cancelWalkAlerts();
+  }, []);
 
-    // Calculate which coordinate the user is near based on elapsed time ratio
-    const progressRatio = Math.min(1, elapsedSeconds / totalEstimatedSeconds);
-    const pointIdx = Math.min(
-      totalPoints - 1,
-      Math.floor(progressRatio * (totalPoints - 1))
-    );
-
-    const [lon, lat] = coords[pointIdx];
-    updateCurrentPosition({ latitude: lat, longitude: lon });
-
-    // Step index progress
-    if (route.instructions && route.instructions.length > 0) {
-      const stepIdx = Math.min(
-        route.instructions.length - 1,
-        Math.floor(progressRatio * route.instructions.length)
-      );
-      setCurrentStepIndex(stepIdx);
-    }
-
-    // Automatically complete walk when reaching 100% of loop or remainingSeconds === 0
-    if (progressRatio >= 0.98 && elapsedSeconds > 10) {
-      completeWalk();
-      router.replace('/summary');
-    }
-  }, [
-    elapsedSeconds,
-    route,
-    updateCurrentPosition,
-    completeWalk,
-    router,
-  ]);
-
-  // Periodically query the backend return route evaluation (every 10 seconds)
+  // Periodically ask the server how long the walk back takes from here.
   useEffect(() => {
-    if (!currentPosition || elapsedSeconds < 3) return;
-
-    const checkReturnFeasibility = async () => {
+    const check = async () => {
+      const state = useWalkStore.getState();
+      if (!state.currentPosition) return;
       try {
-        const remainingMinutes = remainingSeconds / 60;
         const result = await WalkWhileApiClient.calculateReturnRoute({
-          originalOrigin: origin,
-          currentLocation: currentPosition,
-          remainingMinutes,
-          walkingSpeedKmh,
-          safetyBufferMinutes,
+          originalOrigin: state.origin,
+          currentLocation: state.currentPosition,
+          remainingMinutes: state.remainingSeconds / 60,
+          walkingSpeedKmh: state.walkingSpeedKmh,
+          safetyBufferMinutes: state.safetyBufferMinutes,
         });
-
-        updateReturnAssessment({
+        state.updateReturnAssessment({
           route: result.route,
           status: result.status,
           action: result.recommendedAction,
@@ -121,36 +111,37 @@ export default function ActiveWalkScreen() {
         console.warn('Failed to refresh return evaluation:', err);
       }
     };
+    const timer = setInterval(check, RETURN_CHECK_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [updateReturnAssessment]);
 
-    if (elapsedSeconds % 10 === 0) {
-      checkReturnFeasibility();
-    }
-  }, [
-    elapsedSeconds,
-    currentPosition,
-    origin,
-    remainingSeconds,
-    walkingSpeedKmh,
-    safetyBufferMinutes,
-    updateReturnAssessment,
-  ]);
+  // Arrival detection.
+  useEffect(() => {
+    if (!route || !currentPosition) return;
+    const nearStart = distanceBetween(currentPosition, origin) < ARRIVED_METERS;
+    const lastIndex = route.geometry.coordinates.length - 1;
+    const walkedEnough =
+      activeState === 'returning' ||
+      progressIndex >= lastIndex * MIN_PROGRESS_TO_FINISH;
+    if (nearStart && walkedEnough) finish(true);
+  }, [route, currentPosition, origin, progressIndex, activeState, finish]);
 
-  const handleHeadBackNow = async () => {
-    if (!currentPosition) return;
+  const handleHeadBackNow = async (reason: 'manual' | 'arrived') => {
+    const state = useWalkStore.getState();
+    if (!state.currentPosition) return;
     try {
-      const remainingMinutes = remainingSeconds / 60;
       const result = await WalkWhileApiClient.calculateReturnRoute({
-        originalOrigin: origin,
-        currentLocation: currentPosition,
-        remainingMinutes,
-        walkingSpeedKmh,
-        safetyBufferMinutes,
+        originalOrigin: state.origin,
+        currentLocation: state.currentPosition,
+        remainingMinutes: state.remainingSeconds / 60,
+        walkingSpeedKmh: state.walkingSpeedKmh,
+        safetyBufferMinutes: state.safetyBufferMinutes,
       });
-
       triggerReturn(result.route);
+      const minutes = Math.max(1, Math.round(result.calibratedDurationSeconds / 60));
       Alert.alert(
-        'Return Route Activated',
-        'Directing you back to your starting point via the shortest pedestrian path.'
+        reason === 'arrived' ? 'Heading back' : 'Return route ready',
+        `Follow the red dashed line. About ${minutes} min back to your starting point.`
       );
     } catch {
       triggerReturn();
@@ -160,23 +151,23 @@ export default function ActiveWalkScreen() {
   const handleEndWalk = () => {
     Alert.alert('End Walk', 'Are you sure you want to stop this walk?', [
       { text: 'Continue Walking', style: 'cancel' },
-      {
-        text: 'Stop Walk',
-        style: 'destructive',
-        onPress: () => {
-          interruptWalk();
-          router.replace('/summary');
-        },
-      },
+      { text: 'Stop Walk', style: 'destructive', onPress: () => finish(false) },
     ]);
   };
 
-  const currentStep = route?.instructions?.[currentStepIndex];
-  const nextStep = route?.instructions?.[currentStepIndex + 1];
-  const walkedMeters = Math.round(
-    (route?.distanceMeters || 600) *
-      Math.min(1, elapsedSeconds / Math.max(1, route?.calibratedDurationSeconds || 400))
-  );
+  const steps =
+    activeState === 'returning' && returnRoute
+      ? returnRoute.instructions
+      : route?.instructions ?? [];
+  const stepIndex =
+    activeState === 'returning'
+      ? 0
+      : Math.max(
+          0,
+          steps.findIndex((s) => progressIndex <= s.waypointIndices[1])
+        );
+  const currentStep = steps[stepIndex];
+  const nextStep = steps[stepIndex + 1];
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -186,7 +177,6 @@ export default function ActiveWalkScreen() {
           remainingSeconds={remainingSeconds}
           safetyStatus={returnSafetyStatus}
         />
-
         {/* Dynamic Return Safety Alert */}
         <ReturnAlertBanner
           status={returnSafetyStatus}
@@ -198,15 +188,16 @@ export default function ActiveWalkScreen() {
         />
       </View>
 
-      {/* Interactive Active Map */}
+      {/* Live Map */}
       <View style={styles.mapContainer}>
         <UniversalMap
           origin={origin}
           routes={route ? [route] : []}
           selectedRouteIndex={0}
           currentPosition={currentPosition}
-          returnRoute={returnRoute}
+          returnRoute={activeState === 'returning' ? returnRoute : null}
           height={300}
+          followUser
         />
       </View>
 
@@ -216,14 +207,43 @@ export default function ActiveWalkScreen() {
           step={currentStep}
           nextStep={nextStep}
           totalDistanceMeters={route?.distanceMeters}
-          walkedDistanceMeters={walkedMeters}
+          walkedDistanceMeters={Math.round(distanceWalkedMeters)}
         />
+
+        {activeState === 'walking' && offRouteMeters > OFF_ROUTE_METERS && (
+          <View style={styles.offRouteBanner}>
+            <Text style={styles.offRouteText}>
+              You are off the route. That's fine, just keep an eye on the timer.
+            </Text>
+          </View>
+        )}
+
+        {waitType === 'flexible' && activeState === 'walking' && (
+          <View style={styles.flexibleRow}>
+            <TouchableOpacity
+              style={styles.arrivedButton}
+              onPress={() => handleHeadBackNow('arrived')}
+              activeOpacity={0.85}
+            >
+              <UserCheck size={18} color="#FFFFFF" strokeWidth={2.5} />
+              <Text style={styles.arrivedButtonText}>They're here</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.extendButton}
+              onPress={() => extendWalk(EXTEND_MINUTES)}
+              activeOpacity={0.85}
+            >
+              <Plus size={16} color={COLORS.primary} strokeWidth={2.5} />
+              <Text style={styles.extendButtonText}>{EXTEND_MINUTES} min</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Action Controls */}
         <View style={styles.controlsRow}>
           <TouchableOpacity
             style={styles.returnButton}
-            onPress={handleHeadBackNow}
+            onPress={() => handleHeadBackNow('manual')}
             activeOpacity={0.8}
           >
             <Undo2 size={18} color="#92400E" strokeWidth={2.5} />
@@ -302,5 +322,53 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: '#DC2626',
+  },
+  flexibleRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  arrivedButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 14,
+    borderRadius: 18,
+  },
+  arrivedButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  extendButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: COLORS.accentSoft,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 18,
+  },
+  extendButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.primary,
+  },
+  offRouteBanner: {
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: '#FEF3C7',
+  },
+  offRouteText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#92400E',
+    textAlign: 'center',
   },
 });

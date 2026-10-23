@@ -114,6 +114,12 @@ export default function RoutePreviewScreen() {
               <Text style={styles.metricSub}>arrival cushion</Text>
             </View>
           </View>
+          {route.maxReturnSeconds !== undefined && (
+            <Text style={styles.furthestText}>
+              At most ~{Math.max(1, Math.ceil(route.maxReturnSeconds / 60))} min
+              walk from your starting point at any moment.
+            </Text>
+          )}
         </View>
 
         {/* Turn-by-Turn Maneuvers List */}
@@ -167,6 +173,13 @@ export default function RoutePreviewScreen() {
 }
 
 const styles = StyleSheet.create({
+  furthestText: {
+    marginTop: 12,
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+  },
   container: {
     flex: 1,
     backgroundColor: COLORS.background,

@@ -85,10 +85,21 @@ export const RouteCard: React.FC<RouteCardProps> = ({
         </View>
         <View style={styles.metricDivider} />
         <View style={styles.metricItem}>
-          <Text style={styles.metricLabel}>STEPS</Text>
-          <Text style={styles.metricValue}>
-            {route.instructions?.length || 1} turns
-          </Text>
+          {route.maxReturnSeconds !== undefined ? (
+            <>
+              <Text style={styles.metricLabel}>FURTHEST</Text>
+              <Text style={styles.metricValue}>
+                {Math.max(1, Math.ceil(route.maxReturnSeconds / 60))} min away
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.metricLabel}>STEPS</Text>
+              <Text style={styles.metricValue}>
+                {route.instructions?.length || 1} turns
+              </Text>
+            </>
+          )}
         </View>
       </View>
 

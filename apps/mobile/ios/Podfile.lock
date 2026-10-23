@@ -1,7 +1,11 @@
 PODS:
   - boost (1.84.0)
   - DoubleConversion (1.1.6)
+  - EXApplication (6.0.2):
+    - ExpoModulesCore
   - EXConstants (17.0.8):
+    - ExpoModulesCore
+  - EXNotifications (0.29.14):
     - ExpoModulesCore
   - Expo (52.0.49):
     - ExpoModulesCore
@@ -1283,6 +1287,8 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
+  - react-native-maps (1.18.0):
+    - React-Core
   - react-native-safe-area-context (4.12.0):
     - React-Core
   - React-nativeconfig (0.76.7)
@@ -1574,13 +1580,17 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
+  - RNSVG (15.8.0):
+    - React-Core
   - SocketRocket (0.7.1)
   - Yoga (0.0.0)
 
 DEPENDENCIES:
   - boost (from `../../../node_modules/react-native/third-party-podspecs/boost.podspec`)
   - DoubleConversion (from `../../../node_modules/react-native/third-party-podspecs/DoubleConversion.podspec`)
+  - EXApplication (from `../../../node_modules/expo-application/ios`)
   - EXConstants (from `../../../node_modules/expo-constants/ios`)
+  - EXNotifications (from `../../../node_modules/expo-notifications/ios`)
   - Expo (from `../../../node_modules/expo`)
   - ExpoAsset (from `../../../node_modules/expo-asset/ios`)
   - ExpoFileSystem (from `../../../node_modules/expo-file-system/ios`)
@@ -1625,6 +1635,7 @@ DEPENDENCIES:
   - React-logger (from `../../../node_modules/react-native/ReactCommon/logger`)
   - React-Mapbuffer (from `../../../node_modules/react-native/ReactCommon`)
   - React-microtasksnativemodule (from `../../../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
+  - react-native-maps (from `../../../node_modules/react-native-maps`)
   - react-native-safe-area-context (from `../../../node_modules/react-native-safe-area-context`)
   - React-nativeconfig (from `../../../node_modules/react-native/ReactCommon`)
   - React-NativeModulesApple (from `../../../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
@@ -1654,6 +1665,7 @@ DEPENDENCIES:
   - ReactCodegen (from `build/generated/ios`)
   - ReactCommon/turbomodule/core (from `../../../node_modules/react-native/ReactCommon`)
   - RNScreens (from `../../../node_modules/react-native-screens`)
+  - RNSVG (from `../node_modules/react-native-svg`)
   - Yoga (from `../../../node_modules/react-native/ReactCommon/yoga`)
 
 SPEC REPOS:
@@ -1665,8 +1677,12 @@ EXTERNAL SOURCES:
     :podspec: "../../../node_modules/react-native/third-party-podspecs/boost.podspec"
   DoubleConversion:
     :podspec: "../../../node_modules/react-native/third-party-podspecs/DoubleConversion.podspec"
+  EXApplication:
+    :path: "../../../node_modules/expo-application/ios"
   EXConstants:
     :path: "../../../node_modules/expo-constants/ios"
+  EXNotifications:
+    :path: "../../../node_modules/expo-notifications/ios"
   Expo:
     :path: "../../../node_modules/expo"
   ExpoAsset:
@@ -1752,6 +1768,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/react-native/ReactCommon"
   React-microtasksnativemodule:
     :path: "../../../node_modules/react-native/ReactCommon/react/nativemodule/microtasks"
+  react-native-maps:
+    :path: "../../../node_modules/react-native-maps"
   react-native-safe-area-context:
     :path: "../../../node_modules/react-native-safe-area-context"
   React-nativeconfig:
@@ -1810,13 +1828,17 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/react-native/ReactCommon"
   RNScreens:
     :path: "../../../node_modules/react-native-screens"
+  RNSVG:
+    :path: "../node_modules/react-native-svg"
   Yoga:
     :path: "../../../node_modules/react-native/ReactCommon/yoga"
 
 SPEC CHECKSUMS:
   boost: 1dca942403ed9342f98334bf4c3621f011aa7946
   DoubleConversion: f16ae600a246532c4020132d54af21d0ddb2a385
+  EXApplication: 27a524f5c3e671c6218220fba04752629466a1a9
   EXConstants: a1f35b9aabbb3c6791f8e67722579b1ffcdd3f18
+  EXNotifications: c024b19d69d31fbc22ed63682559cef38523da9e
   Expo: 03dca15247583ca0d09d3cee37fb2d5a0b878f04
   ExpoAsset: 0687fe05f5d051c4a34dd1f9440bd00858413cfe
   ExpoFileSystem: c8c19bf80d914c83dda3beb8569d7fb603be0970
@@ -1859,6 +1881,7 @@ SPEC CHECKSUMS:
   React-logger: f9d104eace4ce03d7d5ab96802069d9905082225
   React-Mapbuffer: 23ffe602d0f5ca53b861ef8534cb8c63c4479671
   React-microtasksnativemodule: 258cde5410c578c4739e1d3a3bc902b7a28d4625
+  react-native-maps: 2e6e9896195781327ee15b33e3e84bf73c08207a
   react-native-safe-area-context: 142fade490cbebbe428640b8cbdb09daf17e8191
   React-nativeconfig: 67fa7a63ea288cb5b1d0dd2deaf240405fec164f
   React-NativeModulesApple: cbf1a34443e1f67b56344547f4b0af69e1c685ba
@@ -1888,9 +1911,10 @@ SPEC CHECKSUMS:
   ReactCodegen: 5d7e2d2948a6629a51a59ebc99f620e2afb13ee5
   ReactCommon: 04292c6f596181ebf755e7929d96d2148542b0e8
   RNScreens: e52d2e7e5fa29266d6f8f68e8229452e5b2f4236
+  RNSVG: 8b1a777d54096b8c2a0fd38fc9d5a454332bbb4d
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: 90d80701b27946c4b23461c00a7207f300a6ff71
 
-PODFILE CHECKSUM: 763ad63a6bc906343cdb56ebdaa51b8c0a0cf4e6
+PODFILE CHECKSUM: 8983626913b985e1d5f74626091399e6fbcf1b8e
 
 COCOAPODS: 1.17.0
