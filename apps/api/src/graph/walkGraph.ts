@@ -1,5 +1,5 @@
 import { Coordinate, GeoJSONPosition } from '@walkwhile/shared';
-import { haversineDistance } from '../utils/geo.js';
+import { bearingBetween, haversineDistance } from '../utils/geo.js';
 import { GraphData, readGraphFile } from './graphFile.js';
 import { EdgeKind } from './walkability.js';
 
@@ -21,6 +21,10 @@ const GRID_CELL_DEGREES = 0.005;
 // inside a compound, a mapping error) and are never used as start points.
 const MIN_COMPONENT_SIZE = 200;
 
+// Edge headings are measured over this much of the edge, so small kinks in
+// mapped footpaths right at an intersection don't skew the turn angle.
+const HEADING_SAMPLE_METERS = 15;
+
 /**
  * In-memory pedestrian graph with adjacency lists and a spatial grid index.
  */
@@ -35,6 +39,9 @@ export class WalkGraph {
   private readonly adjNode: Uint32Array;
 
   private readonly componentSize: Uint32Array;
+  /** Heading leaving edgeFrom, and heading arriving at edgeTo, in degrees. */
+  private readonly startHeading: Float32Array;
+  private readonly endHeading: Float32Array;
   private readonly grid = new Map<string, number[]>();
 
   constructor(data: GraphData) {
@@ -66,6 +73,14 @@ export class WalkGraph {
     }
 
     this.componentSize = this.computeComponentSizes();
+
+    this.startHeading = new Float32Array(this.edgeCount);
+    this.endHeading = new Float32Array(this.edgeCount);
+    for (let e = 0; e < this.edgeCount; e++) {
+      const coords = this.traversalGeometry({ edge: e, forward: true });
+      this.startHeading[e] = headingFrom(coords);
+      this.endHeading[e] = (headingFrom(coords.reverse()) + 180) % 360;
+    }
 
     for (let n = 0; n < this.nodeCount; n++) {
       const key = this.cellKey(data.nodeLon[n], data.nodeLat[n]);
@@ -118,6 +133,20 @@ export class WalkGraph {
 
   traversalStart(t: Traversal): number {
     return t.forward ? this.data.edgeFrom[t.edge] : this.data.edgeTo[t.edge];
+  }
+
+  /** Direction the walker faces when setting off along the traversal. */
+  departureHeading(t: Traversal): number {
+    return t.forward
+      ? this.startHeading[t.edge]
+      : (this.endHeading[t.edge] + 180) % 360;
+  }
+
+  /** Direction the walker faces when reaching the end of the traversal. */
+  arrivalHeading(t: Traversal): number {
+    return t.forward
+      ? this.endHeading[t.edge]
+      : (this.startHeading[t.edge] + 180) % 360;
   }
 
   /** Geometry of an edge in traversal order, endpoints included. */
@@ -201,4 +230,16 @@ export class WalkGraph {
     for (let n = 0; n < this.nodeCount; n++) result[n] = sizes[component[n]];
     return result;
   }
+}
+
+/** Heading from the first point of a line towards a point a little way along it. */
+function headingFrom(coords: GeoJSONPosition[]): number {
+  let walked = 0;
+  for (let i = 1; i < coords.length; i++) {
+    walked += haversineDistance(coords[i - 1], coords[i]);
+    if (walked >= HEADING_SAMPLE_METERS || i === coords.length - 1) {
+      return bearingBetween(coords[0], coords[i]);
+    }
+  }
+  return 0;
 }

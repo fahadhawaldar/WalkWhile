@@ -154,3 +154,26 @@ export function sampleLineString(
 
   return samples;
 }
+
+/**
+ * Initial bearing from one position to another, in degrees clockwise from North.
+ */
+export function bearingBetween(from: [number, number], to: [number, number]): number {
+  const toRad = Math.PI / 180;
+  const lat1 = from[1] * toRad;
+  const lat2 = to[1] * toRad;
+  const dLon = (to[0] - from[0]) * toRad;
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x =
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/**
+ * Smallest angle between two bearings, 0-180 degrees.
+ */
+export function angleDifference(a: number, b: number): number {
+  const d = Math.abs((((a - b) % 360) + 360) % 360);
+  return d > 180 ? 360 - d : d;
+}

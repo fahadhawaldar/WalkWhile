@@ -1,4 +1,4 @@
-import { haversineDistance } from '../utils/geo.js';
+import { angleDifference, haversineDistance } from '../utils/geo.js';
 import { Traversal, WalkGraph } from './walkGraph.js';
 
 /** Cost of walking an edge; return Infinity to forbid it. */
@@ -129,10 +129,45 @@ export function pathFromTree(
   return path.reverse();
 }
 
+// Cost of turning at an intersection, in metres of walking: a 90 degree turn
+// is worth a 60m detour, so among similar paths the one that keeps going
+// straight wins over one that zigzags through the street grid.
+const TURN_COST_METERS = 60;
+// Bends gentler than this are just the street curving, not a turn.
+const STRAIGHT_DEGREES = 30;
+// Doubling back at an intersection is far worse than any normal turn.
+const U_TURN_DEGREES = 150;
+const U_TURN_COST_METERS = 200;
+
+/** Extra cost of leaving an intersection along `next` after arriving via `prev`. */
+export function turnCost(
+  graph: WalkGraph,
+  prev: Traversal,
+  next: Traversal,
+  rightAngleCost = TURN_COST_METERS
+): number {
+  // Only real intersections count; elsewhere there is no choice to make.
+  if (graph.degree(graph.traversalEnd(prev)) < 3) return 0;
+  const angle = angleDifference(graph.arrivalHeading(prev), graph.departureHeading(next));
+  if (angle < STRAIGHT_DEGREES) return 0;
+  if (angle >= U_TURN_DEGREES) return U_TURN_COST_METERS;
+  return (rightAngleCost * angle) / 90;
+}
+
+export interface FindPathOptions {
+  maxCost?: number;
+  /** The traversal that brought the walker to source, so the first turn is costed too. */
+  arrivedVia?: Traversal;
+  /** Cost of a 90 degree turn; lower it when the shortest path matters most. */
+  turnCostMeters?: number;
+}
+
 /**
- * A* point-to-point search. `minWeightPerMeter` must not exceed the smallest
- * weight/length ratio any edge can have, so the straight-line heuristic stays
- * admissible.
+ * A* point-to-point search that also charges for turns at intersections.
+ * It searches over traversals (which way the walker is facing) rather than
+ * nodes, since the cost of the next edge depends on the edge that came before.
+ * `minWeightPerMeter` must not exceed the smallest weight/length ratio any
+ * edge can have, so the straight-line heuristic stays admissible.
  */
 export function findPath(
   graph: WalkGraph,
@@ -140,7 +175,7 @@ export function findPath(
   target: number,
   weight: EdgeWeight,
   minWeightPerMeter: number,
-  maxCost = Infinity
+  { maxCost = Infinity, arrivedVia, turnCostMeters = TURN_COST_METERS }: FindPathOptions = {}
 ): Traversal[] | null {
   if (source === target) return [];
 
@@ -148,32 +183,46 @@ export function findPath(
   const heuristic = (n: number) =>
     haversineDistance(graph.position(n), targetPos) * minWeightPerMeter;
 
-  const cost = new Map<number, number>([[source, 0]]);
-  const prevEdge = new Map<number, number>();
+  // A state is a traversal encoded as edge * 2 + (forward ? 1 : 0).
+  const decode = (state: number): Traversal => ({ edge: state >> 1, forward: (state & 1) === 1 });
+  const cost = new Map<number, number>();
+  const prevState = new Map<number, number>();
   const settled = new Set<number>();
   const heap = new MinHeap();
-  heap.push(source, heuristic(source));
 
-  while (heap.size > 0) {
-    const { item: node } = heap.pop();
-    if (settled.has(node)) continue;
-    if (node === target) break;
-    settled.add(node);
-    const base = cost.get(node)!;
-
+  const relax = (from: Traversal | undefined, fromState: number, base: number, node: number) => {
     graph.forEachNeighbor(node, (edge, neighbor) => {
-      if (settled.has(neighbor)) return;
-      const next = base + weight(edge);
-      if (next > maxCost) return;
-      const known = cost.get(neighbor);
-      if (known === undefined || next < known) {
-        cost.set(neighbor, next);
-        prevEdge.set(neighbor, edge);
-        heap.push(neighbor, next + heuristic(neighbor));
+      const forward = graph.data.edgeFrom[edge] === node;
+      const state = edge * 2 + (forward ? 1 : 0);
+      if (settled.has(state)) return;
+      const next = { edge, forward };
+      const total =
+        base + weight(edge) + (from ? turnCost(graph, from, next, turnCostMeters) : 0);
+      if (total > maxCost) return;
+      const known = cost.get(state);
+      if (known === undefined || total < known) {
+        cost.set(state, total);
+        prevState.set(state, fromState);
+        heap.push(state, total + heuristic(neighbor));
       }
     });
+  };
+
+  relax(arrivedVia, -1, 0, source);
+
+  while (heap.size > 0) {
+    const { item: state } = heap.pop();
+    if (settled.has(state)) continue;
+    settled.add(state);
+    const traversal = decode(state);
+    const node = graph.traversalEnd(traversal);
+    if (node === target) {
+      const path: Traversal[] = [];
+      for (let s = state; s !== -1; s = prevState.get(s)!) path.push(decode(s));
+      return path.reverse();
+    }
+    relax(traversal, state, cost.get(state)!, node);
   }
 
-  if (!prevEdge.has(target)) return null;
-  return pathFromTree(graph, { source, cost, prevEdge }, target);
+  return null;
 }

@@ -16,6 +16,8 @@ import {
 const MAX_RETURN_SNAP_METERS = 400;
 // Flexible waits in sparse areas: progressively allow straying further.
 const FLEXIBLE_RELAXATION = [1, 1.5, 2, 3];
+// Walks back accept at most a few metres of detour per turn avoided.
+const RETURN_TURN_COST_METERS = 5;
 // Default pace used for per-step durations (the route total is recalibrated
 // to the user's pace later).
 const STEP_SPEED_MPS = 5 / 3.6;
@@ -82,7 +84,11 @@ export class OsmGraphProvider implements IRoutingProvider {
     const from = this.snapOrThrow(params.currentLocation, MAX_RETURN_SNAP_METERS);
     const to = this.snapOrThrow(params.originalOrigin, DEFAULTS.MAX_ORIGIN_DISTANCE_METERS);
 
-    const path = findPath(this.graph, from.node, to.node, lengthWeight(this.graph), 1);
+    // Getting back on time comes first: turns only break ties between
+    // near-equal paths.
+    const path = findPath(this.graph, from.node, to.node, lengthWeight(this.graph), 1, {
+      turnCostMeters: RETURN_TURN_COST_METERS,
+    });
     if (!path) {
       throw routingError('No walking path back to your starting point was found.', 422);
     }

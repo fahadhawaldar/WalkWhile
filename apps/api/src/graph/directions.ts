@@ -1,6 +1,5 @@
 import { Coordinate, GeoJSONPosition, RouteStep } from '@walkwhile/shared';
-import { haversineDistance } from '../utils/geo.js';
-import { angleDifference, bearingBetween } from './loopPlanner.js';
+import { angleDifference, bearingBetween, haversineDistance } from '../utils/geo.js';
 import { EdgeKind } from './walkability.js';
 import { Traversal, WalkGraph } from './walkGraph.js';
 

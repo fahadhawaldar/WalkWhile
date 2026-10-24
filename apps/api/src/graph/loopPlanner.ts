@@ -1,11 +1,12 @@
 import { RouteType } from '@walkwhile/shared';
-import { haversineDistance } from '../utils/geo.js';
+import { angleDifference, bearingBetween, haversineDistance } from '../utils/geo.js';
 import {
   findPath,
   lengthWeight,
   pathFromTree,
   ShortestPathTree,
   shortestPathTree,
+  turnCost,
 } from './search.js';
 import { MIN_COST_FACTOR } from './walkability.js';
 import { Traversal, WalkGraph } from './walkGraph.js';
@@ -45,6 +46,9 @@ const DETOUR_FACTOR = 1.3;
 const BEARINGS = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
 const SPREADS = [60, 100];
 const CALIBRATION_ROUNDS = 4;
+// Score weight for turning, per metre of turn cost per metre walked. A loop
+// with a 90 degree turn every 100m scores about 0.5 worse than a straight one.
+const TURN_SCORE_WEIGHT = 1.5;
 
 interface Waypoint {
   node: number;
@@ -207,7 +211,9 @@ export class LoopPlanner {
       let from = originNode;
       let failed = false;
       for (const to of [a, b, originNode]) {
-        const leg = findPath(this.graph, from, to, weight, MIN_COST_FACTOR);
+        const leg = findPath(this.graph, from, to, weight, MIN_COST_FACTOR, {
+          arrivedVia: loop[loop.length - 1],
+        });
         if (!leg) {
           failed = true;
           break;
@@ -289,9 +295,11 @@ export class LoopPlanner {
     let reusedLength = 0;
     let weightedLength = 0;
     let maxReturn = 0;
+    let turning = 0;
     const origin = this.graph.position(this.options.originNode);
 
-    for (const t of traversals) {
+    for (const [i, t] of traversals.entries()) {
+      if (i > 0) turning += turnCost(this.graph, traversals[i - 1], t);
       const edgeLength = this.graph.edgeLength(t.edge);
       if (seen.has(t.edge)) reusedLength += edgeLength;
       seen.add(t.edge);
@@ -314,7 +322,8 @@ export class LoopPlanner {
 
     const lengthError = Math.abs(length - targetLengthMeters) / targetLengthMeters;
     const comfort = weightedLength / length - MIN_COST_FACTOR;
-    let score = 4 * lengthError + 2 * reuse + comfort;
+    let score =
+      4 * lengthError + 2 * reuse + comfort + TURN_SCORE_WEIGHT * (turning / length);
     if (maxReturnMeters !== undefined) {
       score += maxReturn / maxReturnMeters;
     }
@@ -363,21 +372,4 @@ function dedupe(routes: PlannedRoute[]): PlannedRoute[] {
     seen.add(key);
     return true;
   });
-}
-
-export function bearingBetween(from: [number, number], to: [number, number]): number {
-  const toRad = Math.PI / 180;
-  const lat1 = from[1] * toRad;
-  const lat2 = to[1] * toRad;
-  const dLon = (to[0] - from[0]) * toRad;
-  const y = Math.sin(dLon) * Math.cos(lat2);
-  const x =
-    Math.cos(lat1) * Math.sin(lat2) -
-    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-}
-
-export function angleDifference(a: number, b: number): number {
-  const d = Math.abs((((a - b) % 360) + 360) % 360);
-  return d > 180 ? 360 - d : d;
 }
