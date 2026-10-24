@@ -89,3 +89,16 @@ export function distanceBetween(a: Coordinate, b: Coordinate): number {
       Math.sin(dLon / 2) ** 2;
   return 2 * EARTH_RADIUS_METERS * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
+
+/** Compass bearing from a to b, in degrees clockwise from North. */
+export function bearingBetween(a: Coordinate, b: Coordinate): number {
+  const toRad = Math.PI / 180;
+  const lat1 = a.latitude * toRad;
+  const lat2 = b.latitude * toRad;
+  const dLon = (b.longitude - a.longitude) * toRad;
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x =
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}

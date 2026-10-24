@@ -1,11 +1,20 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
+import Svg, { Defs, Path, RadialGradient, Stop } from 'react-native-svg';
 import { GeoJSONPosition } from '@walkwhile/shared';
 import { COLORS } from '../theme/colors';
 import { UniversalMapProps } from './mapTypes';
 
 const EDGE_PADDING = { top: 40, right: 40, bottom: 40, left: 40 };
+// Camera height while following the walker (Apple Maps); shows a couple of
+// blocks around them. Google Maps uses the zoom level instead.
+const FOLLOW_ALTITUDE = 350;
+const FOLLOW_ZOOM = 18;
+// Size of the "you" marker, including the heading cone around the dot.
+const YOU_SIZE = 64;
+const WALKED_COLOR = 'rgba(100, 116, 139, 0.5)';
+const NO_PADDING = { top: 0, bottom: 0 };
 
 function toLatLng([longitude, latitude]: GeoJSONPosition) {
   return { latitude, longitude };
@@ -24,6 +33,10 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
   height = 320,
   onSelectRoute,
   followUser = false,
+  heading = null,
+  progressIndex,
+  fullScreen = false,
+  mapPadding = NO_PADDING,
 }) => {
   const mapRef = useRef<MapView>(null);
 
@@ -46,6 +59,23 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
     }
   };
 
+  const followCamera = (animated: boolean) => {
+    const camera = {
+      center: currentPosition ?? origin,
+      altitude: FOLLOW_ALTITUDE,
+      zoom: FOLLOW_ZOOM,
+      heading: 0,
+      pitch: 0,
+    };
+    if (animated) mapRef.current?.animateCamera(camera, { duration: 500 });
+    else mapRef.current?.setCamera(camera);
+  };
+
+  const onMapReady = () => {
+    if (followUser) followCamera(false);
+    else frameAll();
+  };
+
   // Frame the routes whenever they change (not on every GPS update).
   useEffect(() => {
     if (!followUser) frameAll();
@@ -53,14 +83,17 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
   }, [routeCoords, returnCoords, followUser]);
 
   useEffect(() => {
-    if (followUser && currentPosition) {
-      mapRef.current?.animateCamera(
-        // altitude is used by Apple Maps, zoom by Google Maps.
-        { center: currentPosition, altitude: 700, zoom: 17 },
-        { duration: 500 }
-      );
-    }
+    if (followUser && currentPosition) followCamera(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [followUser, currentPosition]);
+
+  // Split the selected route at the walker's progress: walked part faded,
+  // the rest in full colour. Once heading back, the whole loop is behind them.
+  const selectedCoords = routeCoords[selectedRouteIndex] ?? [];
+  const tracking = progressIndex !== undefined && selectedCoords.length > 1;
+  const splitAt = returnCoords.length > 1 ? selectedCoords.length - 1 : progressIndex ?? 0;
+  const walkedCoords = tracking ? selectedCoords.slice(0, splitAt + 1) : [];
+  const aheadCoords = tracking ? selectedCoords.slice(splitAt) : selectedCoords;
 
   // Draw the selected route last so it sits on top.
   const drawOrder = routes
@@ -68,16 +101,20 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
     .sort((a, b) => Number(a === selectedRouteIndex) - Number(b === selectedRouteIndex));
 
   return (
-    <View style={[styles.container, { height }]}>
+    <View style={fullScreen ? styles.fullScreen : [styles.container, { height }]}>
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFill}
         initialRegion={{
-          ...origin,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
+          ...(followUser ? currentPosition ?? origin : origin),
+          latitudeDelta: followUser ? 0.003 : 0.01,
+          longitudeDelta: followUser ? 0.003 : 0.01,
         }}
-        onMapReady={frameAll}
+        onMapReady={onMapReady}
+        mapPadding={{ ...mapPadding, left: 0, right: 0 }}
+        // While following, keep North up so the heading cone reads correctly.
+        rotateEnabled={!followUser}
+        pitchEnabled={!followUser}
         showsUserLocation={!currentPosition}
         showsPointsOfInterest
         showsCompass={false}
@@ -85,10 +122,11 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
       >
         {drawOrder.map((i) => {
           const selected = i === selectedRouteIndex;
+          if (selected && tracking && aheadCoords.length < 2) return null;
           return (
             <Polyline
               key={routes[i].id ?? i}
-              coordinates={routeCoords[i]}
+              coordinates={selected ? aheadCoords : routeCoords[i]}
               strokeColor={
                 selected
                   ? COLORS.routeColors[i % COLORS.routeColors.length]
@@ -102,6 +140,16 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
             />
           );
         })}
+
+        {walkedCoords.length > 1 && (
+          <Polyline
+            coordinates={walkedCoords}
+            strokeColor={WALKED_COLOR}
+            strokeWidth={5}
+            lineJoin="round"
+            lineCap="round"
+          />
+        )}
 
         {returnCoords.length > 1 && (
           <Polyline
@@ -120,8 +168,26 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
 
         {currentPosition && (
           <Marker coordinate={currentPosition} anchor={{ x: 0.5, y: 0.5 }}>
-            <View style={styles.youOuter}>
-              <View style={styles.youInner} />
+            <View style={styles.you}>
+              {heading !== null && (
+                <Svg
+                  width={YOU_SIZE}
+                  height={YOU_SIZE}
+                  style={[StyleSheet.absoluteFill, { transform: [{ rotate: `${heading}deg` }] }]}
+                >
+                  <Defs>
+                    <RadialGradient id="cone" cx="50%" cy="50%" r="50%">
+                      <Stop offset="0.2" stopColor="#2563EB" stopOpacity="0.55" />
+                      <Stop offset="1" stopColor="#2563EB" stopOpacity="0" />
+                    </RadialGradient>
+                  </Defs>
+                  {/* 70 degree wedge pointing up from the centre. */}
+                  <Path d="M32 32 L13.6 5.8 A32 32 0 0 1 50.4 5.8 Z" fill="url(#cone)" />
+                </Svg>
+              )}
+              <View style={styles.youOuter}>
+                <View style={styles.youInner} />
+              </View>
             </View>
           </Marker>
         )}
@@ -151,7 +217,7 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
         </View>
       )}
 
-      <Text style={styles.attribution}>Routes © OpenStreetMap contributors</Text>
+      <Text style={[styles.attribution, { bottom: mapPadding.bottom + 4 }]}>Routes © OpenStreetMap contributors</Text>
     </View>
   );
 };
@@ -163,6 +229,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surfaceSubtle,
     borderWidth: 1,
     borderColor: COLORS.border,
+  },
+  fullScreen: {
+    flex: 1,
+    backgroundColor: COLORS.surfaceSubtle,
   },
   originMarker: {
     backgroundColor: COLORS.primary,
@@ -177,6 +247,12 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.5,
+  },
+  you: {
+    width: YOU_SIZE,
+    height: YOU_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   youOuter: {
     width: 24,

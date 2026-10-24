@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as Location from 'expo-location';
 import { Coordinate, WalkingRoute } from '@walkwhile/shared';
 import { useWalkStore } from '../store/useWalkStore';
-import { distanceBetween } from '../utils/location';
+import { bearingBetween, distanceBetween } from '../utils/location';
 
 // Fixes less accurate than this still move the marker but don't count
 // towards distance walked (GPS jitter would inflate it).
@@ -13,12 +13,19 @@ const MIN_MOVE_METERS = 3;
 // last known progress point instead of the whole route.
 const SEARCH_BEHIND = 5;
 const SEARCH_AHEAD = 120;
+// Compass readings arrive many times a second; skip changes smaller than this.
+const MIN_HEADING_CHANGE_DEGREES = 5;
 
 export interface WalkProgress {
   /** Index of the route coordinate the walker is closest to. */
   progressIndex: number;
   /** Distance from the walker to that coordinate. */
   offRouteMeters: number;
+}
+
+export interface WalkTracking extends WalkProgress {
+  /** Direction the walker is facing, in degrees from North, once known. */
+  heading: number | null;
 }
 
 function toCoordinate([longitude, latitude]: [number, number]): Coordinate {
@@ -29,7 +36,7 @@ function toCoordinate([longitude, latitude]: [number, number]): Coordinate {
  * Follows the walker's position during an active walk (real GPS, or a
  * simulated walk along the route in development) and tracks progress.
  */
-export function useWalkTracking(route: WalkingRoute | undefined): WalkProgress {
+export function useWalkTracking(route: WalkingRoute | undefined): WalkTracking {
   const simulateWalk = useWalkStore((s) => s.simulateWalk);
   const updateCurrentPosition = useWalkStore((s) => s.updateCurrentPosition);
   const addWalkedDistance = useWalkStore((s) => s.addWalkedDistance);
@@ -40,6 +47,14 @@ export function useWalkTracking(route: WalkingRoute | undefined): WalkProgress {
     offRouteMeters: 0,
   });
   const lastCounted = useRef<Coordinate | null>(null);
+  const [heading, setHeading] = useState<number | null>(null);
+
+  const updateHeading = (next: number) =>
+    setHeading((prev) => {
+      if (prev === null) return next;
+      const diff = Math.abs(((next - prev + 540) % 360) - 180);
+      return diff < MIN_HEADING_CHANGE_DEGREES ? prev : next;
+    });
 
   // Position source: GPS or simulation.
   useEffect(() => {
@@ -68,12 +83,17 @@ export function useWalkTracking(route: WalkingRoute | undefined): WalkProgress {
           (Date.now() - startedAt) / 1000 / Math.max(1, route.calibratedDurationSeconds)
         );
         const idx = Math.min(coords.length - 1, Math.floor(ratio * (coords.length - 1)));
+        const next = coords[Math.min(coords.length - 1, idx + 1)];
+        if (next !== coords[idx]) {
+          updateHeading(bearingBetween(toCoordinate(coords[idx]), toCoordinate(next)));
+        }
         accept(toCoordinate(coords[idx]), null);
       }, 1000);
       return () => clearInterval(timer);
     }
 
     let subscription: Location.LocationSubscription | null = null;
+    let headingSubscription: Location.LocationSubscription | null = null;
     let cancelled = false;
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -90,12 +110,21 @@ export function useWalkTracking(route: WalkingRoute | undefined): WalkProgress {
             loc.coords.accuracy
           )
       );
-      if (cancelled) subscription.remove();
+      // The compass shows which way the phone points, even when standing still.
+      headingSubscription = await Location.watchHeadingAsync((h) => {
+        const value = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;
+        updateHeading(value);
+      });
+      if (cancelled) {
+        subscription.remove();
+        headingSubscription.remove();
+      }
     })();
 
     return () => {
       cancelled = true;
       subscription?.remove();
+      headingSubscription?.remove();
     };
   }, [simulateWalk, route, updateCurrentPosition, addWalkedDistance]);
 
@@ -119,5 +148,5 @@ export function useWalkTracking(route: WalkingRoute | undefined): WalkProgress {
     });
   }, [route, currentPosition]);
 
-  return progress;
+  return { ...progress, heading };
 }

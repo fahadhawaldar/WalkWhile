@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   StyleSheet,
@@ -8,13 +8,12 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useKeepAwake } from 'expo-keep-awake';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Plus, Square, Undo2, UserCheck } from 'lucide-react-native';
 import { WalkWhileApiClient } from '../src/api/client';
-import { CountdownTimer } from '../src/components/CountdownTimer';
-import { ReturnAlertBanner } from '../src/components/ReturnAlertBanner';
 import { TurnInstructionCard } from '../src/components/TurnInstructionCard';
 import { UniversalMap } from '../src/components/UniversalMap';
+import { WalkStatusBar } from '../src/components/WalkStatusBar';
 import { useWalkTracking } from '../src/hooks/useWalkTracking';
 import { useWalkStore } from '../src/store/useWalkStore';
 import { COLORS } from '../src/theme/colors';
@@ -45,7 +44,6 @@ export default function ActiveWalkScreen() {
     currentPosition,
     returnRoute,
     returnSafetyStatus,
-    recommendedReturnAction,
     returnSafetyMessage,
     safetyBufferMinutes,
     waitType,
@@ -57,8 +55,13 @@ export default function ActiveWalkScreen() {
   } = useWalkStore();
 
   const route = generatedRoutes[selectedRouteIndex];
-  const { progressIndex, offRouteMeters } = useWalkTracking(route);
+  const { progressIndex, offRouteMeters, heading } = useWalkTracking(route);
   const finished = useRef(false);
+  const insets = useSafeAreaInsets();
+  // Heights of the panels floating over the map, so it can keep the walker
+  // centred in the visible part.
+  const [topHudHeight, setTopHudHeight] = useState(0);
+  const [bottomHudHeight, setBottomHudHeight] = useState(0);
 
   const finish = useCallback(
     (completed: boolean) => {
@@ -170,39 +173,39 @@ export default function ActiveWalkScreen() {
   const nextStep = steps[stepIndex + 1];
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      {/* Top Countdown HUD */}
-      <View style={styles.topHud}>
-        <CountdownTimer
+    <View style={styles.container}>
+      {/* Full-screen live map */}
+      <UniversalMap
+        origin={origin}
+        routes={route ? [route] : []}
+        selectedRouteIndex={0}
+        currentPosition={currentPosition}
+        returnRoute={activeState === 'returning' ? returnRoute : null}
+        followUser
+        heading={heading}
+        progressIndex={progressIndex}
+        fullScreen
+        mapPadding={{ top: topHudHeight, bottom: bottomHudHeight }}
+      />
+
+      {/* Time left and return status, floating over the top of the map */}
+      <View
+        style={[styles.topHud, { paddingTop: insets.top + 8 }]}
+        onLayout={(e) => setTopHudHeight(e.nativeEvent.layout.height)}
+        pointerEvents="box-none"
+      >
+        <WalkStatusBar
           remainingSeconds={remainingSeconds}
-          safetyStatus={returnSafetyStatus}
-        />
-        {/* Dynamic Return Safety Alert */}
-        <ReturnAlertBanner
           status={returnSafetyStatus}
-          action={recommendedReturnAction}
           message={returnSafetyMessage}
-          safetyMarginSeconds={
-            remainingSeconds - (returnRoute?.calibratedDurationSeconds ?? 0)
-          }
         />
       </View>
 
-      {/* Live Map */}
-      <View style={styles.mapContainer}>
-        <UniversalMap
-          origin={origin}
-          routes={route ? [route] : []}
-          selectedRouteIndex={0}
-          currentPosition={currentPosition}
-          returnRoute={activeState === 'returning' ? returnRoute : null}
-          height={300}
-          followUser
-        />
-      </View>
-
-      {/* Turn-by-Turn Instruction & Progress */}
-      <View style={styles.bottomHud}>
+      <View
+        style={[styles.bottomHud, { paddingBottom: insets.bottom + 12 }]}
+        onLayout={(e) => setBottomHudHeight(e.nativeEvent.layout.height)}
+      >
+        {/* Turn-by-Turn Instruction & Progress */}
         <TurnInstructionCard
           step={currentStep}
           nextStep={nextStep}
@@ -260,7 +263,7 @@ export default function ActiveWalkScreen() {
           </TouchableOpacity>
         </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -270,19 +273,27 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   topHud: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
     paddingHorizontal: 16,
-    paddingTop: 8,
-    backgroundColor: COLORS.background,
-  },
-  mapContainer: {
-    flex: 1,
-    paddingHorizontal: 16,
-    marginVertical: 8,
   },
   bottomHud: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     paddingHorizontal: 16,
-    paddingBottom: 16,
+    paddingTop: 4,
     backgroundColor: COLORS.background,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
   },
   controlsRow: {
     flexDirection: 'row',
