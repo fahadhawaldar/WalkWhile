@@ -13,7 +13,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "WalkWhile uses your location to discover safe, circular walking routes from your exact starting point and monitor your return trip."
+        "NSLocationWhenInUseUsageDescription": "WalkWhile uses your location to discover safe, circular walking routes from your exact starting point and monitor your return trip.",
+        "NSMotionUsageDescription": "WalkWhile counts your steps during a walk."
       },
       "bundleIdentifier": "com.fahadhdev.walkwhile"
     },
@@ -35,6 +36,12 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "WalkWhile uses your location to discover safe, circular walking routes from your exact starting point and monitor your return trip."
+        }
+      ],
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "WalkWhile counts your steps during a walk."
         }
       ]
     ]

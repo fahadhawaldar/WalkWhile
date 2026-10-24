@@ -51,6 +51,8 @@
 	<string>Allow $(PRODUCT_NAME) to access your location</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>WalkWhile uses your location to discover safe, circular walking routes from your exact starting point and monitor your return trip.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>WalkWhile counts your steps during a walk.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>

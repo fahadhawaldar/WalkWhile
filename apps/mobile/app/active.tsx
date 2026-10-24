@@ -40,6 +40,7 @@ export default function ActiveWalkScreen() {
     availableMinutes,
     remainingSeconds,
     distanceWalkedMeters,
+    stepCount,
     tickSecond,
     currentPosition,
     returnRoute,
@@ -211,6 +212,7 @@ export default function ActiveWalkScreen() {
           nextStep={nextStep}
           totalDistanceMeters={route?.distanceMeters}
           walkedDistanceMeters={Math.round(distanceWalkedMeters)}
+          stepCount={stepCount}
         />
 
         {activeState === 'walking' && offRouteMeters > OFF_ROUTE_METERS && (

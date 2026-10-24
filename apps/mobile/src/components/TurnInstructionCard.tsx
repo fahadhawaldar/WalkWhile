@@ -16,6 +16,7 @@ interface TurnInstructionCardProps {
   nextStep?: RouteStep;
   totalDistanceMeters?: number;
   walkedDistanceMeters?: number;
+  stepCount?: number;
 }
 
 export const TurnInstructionCard: React.FC<TurnInstructionCardProps> = ({
@@ -23,6 +24,7 @@ export const TurnInstructionCard: React.FC<TurnInstructionCardProps> = ({
   nextStep,
   totalDistanceMeters,
   walkedDistanceMeters,
+  stepCount,
 }) => {
   if (!step) {
     return (
@@ -104,6 +106,7 @@ export const TurnInstructionCard: React.FC<TurnInstructionCardProps> = ({
           <View style={styles.progressLabels}>
             <Text style={styles.progressText}>
               {formatDistance(walkedDistanceMeters)} walked
+              {stepCount ? ` · ${stepCount.toLocaleString()} steps` : ''}
             </Text>
             <Text style={styles.progressText}>
               {formatDistance(totalDistanceMeters)} total

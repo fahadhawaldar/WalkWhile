@@ -32,6 +32,8 @@ interface WalkStoreState {
   elapsedSeconds: number;
   remainingSeconds: number;
   distanceWalkedMeters: number;
+  /** Steps taken since the walk started, from the phone's pedometer. */
+  stepCount: number;
 
   // Tracking & Return
   currentPosition: Coordinate | null;
@@ -54,6 +56,7 @@ interface WalkStoreState {
   /** Flexible waits: the other person is running late. */
   extendWalk: (minutes: number) => void;
   addWalkedDistance: (meters: number) => void;
+  setStepCount: (steps: number) => void;
   triggerReturn: (returnRoute?: WalkingRoute) => void;
   completeWalk: () => void;
   interruptWalk: () => void;
@@ -85,6 +88,7 @@ export const useWalkStore = create<WalkStoreState>((set, get) => ({
   elapsedSeconds: 0,
   remainingSeconds: DEFAULTS.AVAILABLE_MINUTES * 60,
   distanceWalkedMeters: 0,
+  stepCount: 0,
 
   currentPosition: null,
   returnRoute: null,
@@ -120,6 +124,7 @@ export const useWalkStore = create<WalkStoreState>((set, get) => ({
       elapsedSeconds: 0,
       remainingSeconds: availableMinutes * 60,
       distanceWalkedMeters: 0,
+      stepCount: 0,
       currentPosition: origin,
       returnRoute: null,
       returnSafetyStatus: 'safe',
@@ -156,6 +161,8 @@ export const useWalkStore = create<WalkStoreState>((set, get) => ({
     }));
   },
 
+  setStepCount: (stepCount) => set({ stepCount }),
+
   triggerReturn: (returnRoute) => {
     set((state) => ({
       activeState: 'returning',
@@ -180,6 +187,7 @@ export const useWalkStore = create<WalkStoreState>((set, get) => ({
       elapsedSeconds: 0,
       remainingSeconds: availableMinutes * 60,
       distanceWalkedMeters: 0,
+      stepCount: 0,
       returnRoute: null,
       generatedRoutes: [],
       selectedRouteIndex: 0,

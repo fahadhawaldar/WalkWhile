@@ -12,6 +12,7 @@ import {
   Clock,
   Footprints,
   RotateCcw,
+  Route,
   ShieldCheck,
   XCircle,
 } from 'lucide-react-native';
@@ -30,6 +31,7 @@ export default function SummaryScreen() {
     elapsedSeconds,
     remainingSeconds,
     distanceWalkedMeters,
+    stepCount,
     resetWalk,
   } = useWalkStore();
 
@@ -89,12 +91,22 @@ export default function SummaryScreen() {
 
             <View style={styles.metricCell}>
               <View style={styles.metricIconRow}>
-                <Footprints size={16} color={COLORS.primary} />
+                <Route size={16} color={COLORS.primary} />
                 <Text style={styles.metricLabel}>DISTANCE</Text>
               </View>
               <Text style={styles.metricValue}>
                 {formatDistance(walkedDistanceMeters)}
               </Text>
+            </View>
+
+            <View style={styles.metricDivider} />
+
+            <View style={styles.metricCell}>
+              <View style={styles.metricIconRow}>
+                <Footprints size={16} color={COLORS.primary} />
+                <Text style={styles.metricLabel}>STEPS</Text>
+              </View>
+              <Text style={styles.metricValue}>{stepCount.toLocaleString()}</Text>
             </View>
           </View>
 

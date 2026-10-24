@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Location from 'expo-location';
+import { Pedometer } from 'expo-sensors';
 import { Coordinate, WalkingRoute } from '@walkwhile/shared';
 import { useWalkStore } from '../store/useWalkStore';
 import { bearingBetween, distanceBetween } from '../utils/location';
@@ -13,6 +14,8 @@ const MIN_MOVE_METERS = 3;
 // last known progress point instead of the whole route.
 const SEARCH_BEHIND = 5;
 const SEARCH_AHEAD = 120;
+// Average walking stride, for estimating steps on a simulated walk.
+const STRIDE_METERS = 0.75;
 // Compass readings arrive many times a second; skip changes smaller than this.
 const MIN_HEADING_CHANGE_DEGREES = 5;
 
@@ -41,6 +44,9 @@ export function useWalkTracking(route: WalkingRoute | undefined): WalkTracking {
   const updateCurrentPosition = useWalkStore((s) => s.updateCurrentPosition);
   const addWalkedDistance = useWalkStore((s) => s.addWalkedDistance);
   const currentPosition = useWalkStore((s) => s.currentPosition);
+  const startTime = useWalkStore((s) => s.startTime);
+  const distanceWalkedMeters = useWalkStore((s) => s.distanceWalkedMeters);
+  const setStepCount = useWalkStore((s) => s.setStepCount);
 
   const [progress, setProgress] = useState<WalkProgress>({
     progressIndex: 0,
@@ -127,6 +133,40 @@ export function useWalkTracking(route: WalkingRoute | undefined): WalkTracking {
       headingSubscription?.remove();
     };
   }, [simulateWalk, route, updateCurrentPosition, addWalkedDistance]);
+
+  // Steps from the phone's motion coprocessor. Counting starts from the walk's
+  // start time, so steps survive a reload of the app mid-walk.
+  useEffect(() => {
+    if (simulateWalk || startTime === null) return;
+    let subscription: { remove: () => void } | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!(await Pedometer.isAvailableAsync())) return;
+        const { granted } = await Pedometer.requestPermissionsAsync();
+        if (!granted || cancelled) return;
+        const { steps: before } = await Pedometer.getStepCountAsync(
+          new Date(startTime),
+          new Date()
+        );
+        if (cancelled) return;
+        setStepCount(before);
+        // watchStepCount reports steps since subscribing.
+        subscription = Pedometer.watchStepCount(({ steps }) => setStepCount(before + steps));
+      } catch (err) {
+        console.warn('Step counting unavailable:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      subscription?.remove();
+    };
+  }, [simulateWalk, startTime, setStepCount]);
+
+  // A simulated walk has no real steps; estimate them from distance.
+  useEffect(() => {
+    if (simulateWalk) setStepCount(Math.round(distanceWalkedMeters / STRIDE_METERS));
+  }, [simulateWalk, distanceWalkedMeters, setStepCount]);
 
   // Progress along the route.
   useEffect(() => {
