@@ -3,6 +3,50 @@
 #import <React/RCTBundleURLProvider.h>
 #import <React/RCTLinkingManager.h>
 
+@interface AppDelegate ()
+@property (nonatomic, copy) NSDictionary *launchOptions;
+@end
+
+@interface SceneDelegate : UIResponder <UIWindowSceneDelegate>
+@property (nonatomic, strong) UIWindow *window;
+@end
+
+@implementation SceneDelegate
+
+- (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions
+{
+  AppDelegate *appDelegate = (AppDelegate *)UIApplication.sharedApplication.delegate;
+  UIView *rootView = [appDelegate.rootViewFactory viewWithModuleName:appDelegate.moduleName
+                                                   initialProperties:appDelegate.initialProps
+                                                       launchOptions:appDelegate.launchOptions];
+  UIViewController *rootViewController = [appDelegate createRootViewController];
+  [appDelegate setRootView:rootView toRootViewController:rootViewController];
+
+  self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
+  self.window.rootViewController = rootViewController;
+  appDelegate.window = self.window;
+  [self.window makeKeyAndVisible];
+
+  [self scene:scene openURLContexts:connectionOptions.URLContexts];
+}
+
+// Deep links arrive here instead of the app delegate once scenes are adopted.
+- (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)URLContexts
+{
+  for (UIOpenURLContext *context in URLContexts) {
+    [RCTLinkingManager application:UIApplication.sharedApplication openURL:context.URL options:@{}];
+  }
+}
+
+- (void)scene:(UIScene *)scene continueUserActivity:(NSUserActivity *)userActivity
+{
+  [RCTLinkingManager application:UIApplication.sharedApplication
+            continueUserActivity:userActivity
+              restorationHandler:^(NSArray<id<UIUserActivityRestoring>> *_Nullable restorableObjects) {}];
+}
+
+@end
+
 @implementation AppDelegate
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
@@ -12,6 +56,11 @@
   // You can add your custom initial props in the dictionary below.
   // They will be passed down to the ViewController used by React Native.
   self.initialProps = @{};
+
+  // iOS 27 requires the UIScene lifecycle, so SceneDelegate creates the window
+  // once a scene connects instead of React Native doing it at launch.
+  self.automaticallyLoadReactNativeWindow = NO;
+  self.launchOptions = launchOptions;
 
   return [super application:application didFinishLaunchingWithOptions:launchOptions];
 }
