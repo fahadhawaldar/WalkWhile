@@ -6,7 +6,7 @@ import {
 } from '@walkwhile/shared';
 
 // Default to local API server. In Expo, localhost works for web and simulators.
-const API_BASE_URL =
+export const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
 export class WalkWhileApiClient {

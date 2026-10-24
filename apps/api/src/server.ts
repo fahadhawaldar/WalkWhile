@@ -6,8 +6,16 @@ import {
   handleGetProviderInfo,
   handleReturnRoute,
 } from './controllers/routesController.js';
+import { createAccountRouter } from './controllers/accountController.js';
+import { AuthService } from './services/auth.js';
+import { WalkService } from './services/walks.js';
 
-export function createServer(): Express {
+export interface ServerOptions {
+  /** Accounts and walk history; omitted when no database is available. */
+  accounts?: { auth: AuthService; walks: WalkService };
+}
+
+export function createServer({ accounts }: ServerOptions = {}): Express {
   const app = express();
 
   // Security & utility middleware
@@ -29,6 +37,16 @@ export function createServer(): Express {
   app.get('/api/v1/routes/provider', handleGetProviderInfo);
   app.post('/api/v1/routes/generate', handleGenerateRoutes);
   app.post('/api/v1/routes/return', handleReturnRoute);
+
+  if (accounts) {
+    app.use('/api/v1', createAccountRouter(accounts.auth, accounts.walks));
+  } else {
+    app.use(['/api/v1/auth', '/api/v1/walks', '/api/v1/me'], (_req: Request, res: Response) => {
+      res.status(503).json({
+        error: { code: 'ACCOUNTS_UNAVAILABLE', message: 'Walk history is unavailable (no database)' },
+      });
+    });
+  }
 
   // 404 catch-all
   app.use((_req: Request, res: Response) => {

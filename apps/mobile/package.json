@@ -11,15 +11,18 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "1.23.1",
     "@tanstack/react-query": "^5.66.9",
     "@walkwhile/shared": "*",
     "expo": "~52.0.35",
     "expo-constants": "~17.0.7",
+    "expo-crypto": "~14.0.2",
     "expo-keep-awake": "~14.0.3",
     "expo-linking": "~7.0.5",
     "expo-location": "~18.0.7",
     "expo-notifications": "~0.29.14",
     "expo-router": "~4.0.17",
+    "expo-secure-store": "~14.0.1",
     "expo-sensors": "~14.0.2",
     "expo-status-bar": "~2.0.1",
     "lucide-react-native": "^0.475.0",

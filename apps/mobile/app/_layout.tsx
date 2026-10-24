@@ -1,7 +1,9 @@
+import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { syncPendingWalks } from '../src/history/walkHistory';
 import { COLORS } from '../src/theme/colors';
 
 const queryClient = new QueryClient({
@@ -14,6 +16,11 @@ const queryClient = new QueryClient({
 });
 
 export default function RootLayout() {
+  // Signs in (anonymously on first launch) and uploads walks finished offline.
+  useEffect(() => {
+    syncPendingWalks().catch(() => {});
+  }, []);
+
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
@@ -60,6 +67,20 @@ export default function RootLayout() {
               title: 'Active Walk',
               headerShown: false,
               gestureEnabled: false,
+            }}
+          />
+          <Stack.Screen
+            name="history"
+            options={{
+              title: 'Your Walks',
+              headerBackTitle: 'Home',
+            }}
+          />
+          <Stack.Screen
+            name="walk/[id]"
+            options={{
+              title: 'Walk',
+              headerBackTitle: 'History',
             }}
           />
           <Stack.Screen

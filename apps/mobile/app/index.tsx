@@ -22,6 +22,7 @@ import {
   Settings,
   ShieldCheck,
   Timer,
+  History,
   Users,
   Zap,
 } from 'lucide-react-native';
@@ -175,6 +176,14 @@ export default function HomeScreen() {
           <Text style={styles.tagline}>
             Turn waiting time into walking opportunities.
           </Text>
+          <TouchableOpacity
+            style={styles.historyButton}
+            onPress={() => router.push('/history')}
+            activeOpacity={0.8}
+          >
+            <History size={15} color={COLORS.primary} strokeWidth={2.5} />
+            <Text style={styles.historyButtonText}>Your walks</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Wait Type */}
@@ -495,6 +504,21 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginTop: 4,
     textAlign: 'center',
+  },
+  historyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: COLORS.accentSoft,
+  },
+  historyButtonText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: COLORS.primary,
   },
   card: {
     backgroundColor: COLORS.surface,

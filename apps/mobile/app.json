@@ -43,7 +43,8 @@
         {
           "motionPermission": "WalkWhile counts your steps during a walk."
         }
-      ]
+      ],
+      "expo-secure-store"
     ]
   }
 }

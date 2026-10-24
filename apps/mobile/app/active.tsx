@@ -14,6 +14,7 @@ import { WalkWhileApiClient } from '../src/api/client';
 import { TurnInstructionCard } from '../src/components/TurnInstructionCard';
 import { UniversalMap } from '../src/components/UniversalMap';
 import { WalkStatusBar } from '../src/components/WalkStatusBar';
+import { recordFinishedWalk } from '../src/history/walkHistory';
 import { useWalkTracking } from '../src/hooks/useWalkTracking';
 import { useWalkStore } from '../src/store/useWalkStore';
 import { COLORS } from '../src/theme/colors';
@@ -69,6 +70,9 @@ export default function ActiveWalkScreen() {
       if (finished.current) return;
       finished.current = true;
       cancelWalkAlerts();
+      recordFinishedWalk(completed).catch((err) =>
+        console.warn('Could not save the walk to history:', err)
+      );
       if (completed) completeWalk();
       else interruptWalk();
       router.replace('/summary');
