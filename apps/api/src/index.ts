@@ -12,6 +12,9 @@ async function connectAccounts(): Promise<ServerOptions['accounts']> {
     const applied = await runMigrations(db);
     if (applied.length > 0) console.log(`🗄️  Applied migrations: ${applied.join(', ')}`);
   } catch (err) {
+    // In production a missing database is a misconfiguration: fail so Cloud
+    // Run reports it, rather than quietly running without accounts.
+    if (config.NODE_ENV === 'production') throw err;
     // Routing still works without a database; only history is unavailable.
     console.warn(`[Database] Could not connect to ${config.DATABASE_URL}: ${(err as Error).message}`);
     await db.close();

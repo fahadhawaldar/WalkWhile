@@ -3,6 +3,9 @@ dist
 build
 .env
 .env.local
+# Local copies of hosted secrets (e.g. apps/api/.env.neon)
+.env.*
+!.env.example
 *.log
 .DS_Store
 coverage
@@ -10,6 +13,6 @@ coverage
 .expo-shared
 web-build
 
-# OpenStreetMap source extracts (large, re-downloadable)
+# OpenStreetMap source extracts (large, re-downloadable). The built graph
+# in data/graphs/ is committed: Render builds the API image from git.
 data/raw/
-data/graphs/

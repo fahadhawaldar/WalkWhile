@@ -25,6 +25,10 @@ export function getRoutingProvider(): IRoutingProvider {
       );
       return defaultProviderInstance;
     }
+    // Fake routes in production would send real people the wrong way.
+    if (config.NODE_ENV === 'production') {
+      throw new Error(`Pedestrian graph not found at ${config.GRAPH_PATH}`);
+    }
     console.warn(
       `[RoutingProvider] Pedestrian graph not found at ${config.GRAPH_PATH}. Run apps/api/scripts/prepareOsm.sh to build it. Falling back to MockRoutingProvider.`
     );

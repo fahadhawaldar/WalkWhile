@@ -91,9 +91,11 @@ export default function HomeScreen() {
     if (loc) setOrigin(loc, 'gps');
   };
 
-  // You are standing where the walk starts, so locate right away.
+  // You are standing where the walk starts, so locate right away, and wake
+  // the API while the user picks a time.
   useEffect(() => {
     locate();
+    WalkWhileApiClient.wake();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

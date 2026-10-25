@@ -36,6 +36,14 @@ export class WalkWhileApiClient {
     return (await response.json()) as T;
   }
 
+  /**
+   * Wakes the hosted API, which sleeps when idle and takes about a minute to
+   * start. Fire-and-forget: call it before the user is likely to need it.
+   */
+  static wake(): void {
+    fetch(`${API_BASE_URL}/health`).catch(() => {});
+  }
+
   static async generateRoutes(
     params: GenerateRoutesRequestInput
   ): Promise<GenerateRoutesResponse> {
