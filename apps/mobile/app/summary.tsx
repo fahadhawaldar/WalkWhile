@@ -1,34 +1,45 @@
-import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { useEffect, useMemo } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  CheckCircle2,
-  Clock,
-  Footprints,
-  RotateCcw,
-  Route,
-  ShieldCheck,
-  XCircle,
-} from 'lucide-react-native';
+import Animated, {
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { Check, Clock3, Flag, Flame } from 'lucide-react-native';
 import { UniversalMap } from '../src/components/UniversalMap';
+import { AppText } from '../src/components/ui/AppText';
+import { Button } from '../src/components/ui/Button';
+import { CountUp } from '../src/components/ui/CountUp';
+import { ProgressRing } from '../src/components/ui/ProgressRing';
+import { useWalkStats, WEEKLY_GOAL } from '../src/history/stats';
+import { todayKey, useTodaySteps } from '../src/profile/steps';
 import { useWalkStore } from '../src/store/useWalkStore';
-import { COLORS } from '../src/theme/colors';
-import { formatDistance, formatDuration } from '../src/utils/location';
+import { layout, motion, Palette, radius, shadows, spacing, type, useColors, useThemedStyles } from '../src/theme';
+import { speak } from '../modules/walk-voice';
+import { haptics } from '../src/utils/haptics';
+
+type Outcome = 'on_time' | 'late' | 'ended';
+
+const enter = (i: number) =>
+  FadeInDown.duration(motion.slow).delay(250 + 80 * i).easing(motion.easeOutFn);
 
 export default function SummaryScreen() {
+  const c = useColors();
+  const styles = useThemedStyles(makeStyles);
   const router = useRouter();
   const {
     origin,
     generatedRoutes,
     selectedRouteIndex,
     activeState,
+    startTime,
     elapsedSeconds,
+    availableMinutes,
     remainingSeconds,
     distanceWalkedMeters,
     stepCount,
@@ -36,248 +47,289 @@ export default function SummaryScreen() {
   } = useWalkStore();
 
   const route = generatedRoutes[selectedRouteIndex];
-  const isCompleted = activeState === 'completed';
+  const plannedSeconds = availableMinutes * 60;
+  const outcome: Outcome =
+    activeState !== 'completed' ? 'ended' : elapsedSeconds <= plannedSeconds ? 'on_time' : 'late';
 
-  const handleFinish = () => {
+  // Count this walk even if it has not reached the server yet.
+  const thisWalk = useMemo(
+    () =>
+      startTime !== null && elapsedSeconds >= 30
+        ? {
+            startedAt: new Date(startTime).toISOString(),
+            distanceMeters: Math.round(distanceWalkedMeters),
+            steps: stepCount,
+          }
+        : null,
+    [startTime, elapsedSeconds, distanceWalkedMeters, stepCount]
+  );
+  const stats = useWalkStats(thisWalk);
+  const { steps: todaySteps } = useTodaySteps();
+  const dailyStepGoal = useWalkStore((s) => s.dailyStepGoal);
+  const stepsToday = todaySteps ?? stats?.todayWalkSteps ?? null;
+  const goalReached = !!dailyStepGoal && stepsToday !== null && stepsToday >= dailyStepGoal;
+
+  // The first time today's goal is crossed, make a moment of it.
+  useEffect(() => {
+    if (!goalReached) return;
+    const state = useWalkStore.getState();
+    const today = todayKey();
+    if (state.goalCelebratedOn === today) return;
+    state.markGoalCelebrated(today);
+    haptics.success();
+    if (state.voiceEnabled) speak("And that's your step goal for today.");
+  }, [goalReached]);
+
+  useEffect(() => {
+    if (outcome === 'on_time') haptics.success();
+    if (useWalkStore.getState().voiceEnabled) {
+      speak(outcome === 'on_time' ? "You're back on time. Nice walk." : outcome === 'late' ? "You're back. Nice walk." : 'Walk saved.');
+    }
+  }, [outcome]);
+
+  const handleDone = () => {
+    haptics.tap();
     resetWalk();
     router.replace('/');
   };
 
-  const walkedDistanceMeters = Math.round(distanceWalkedMeters);
+  const minutes = Math.max(1, Math.round(elapsedSeconds / 60));
+  const spare = Math.round(remainingSeconds / 60);
+  const late = Math.max(1, Math.round((elapsedSeconds - plannedSeconds) / 60));
+
+  const copy: Record<Outcome, { title: string; body: string }> = {
+    on_time: {
+      title: 'Back on time',
+      body:
+        spare >= 1
+          ? `With ${spare} min to spare. That wait turned into a walk.`
+          : 'Right on the minute. That wait turned into a walk.',
+    },
+    late: {
+      title: 'You made it back',
+      body: `${late} min later than planned. A bigger buffer in settings can help next time.`,
+    },
+    ended: {
+      title: 'Walk saved',
+      body: 'You ended early, and every minute on your feet still counts.',
+    },
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Status Header Badge */}
-        <View style={styles.statusHeader}>
-          <View
-            style={[
-              styles.iconCircle,
-              isCompleted ? styles.iconCompleted : styles.iconInterrupted,
-            ]}
-          >
-            {isCompleted ? (
-              <CheckCircle2 size={48} color="#059669" strokeWidth={2.5} />
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={styles.hero}>
+          <OutcomeBadge outcome={outcome} />
+          <Animated.View entering={enter(0)} style={styles.heroText}>
+            <AppText variant="largeTitle" style={styles.center}>
+              {copy[outcome].title}
+            </AppText>
+            <AppText variant="subhead" style={styles.center}>
+              {copy[outcome].body}
+            </AppText>
+          </Animated.View>
+        </View>
+
+        <Animated.View entering={enter(1)} style={styles.stats}>
+          <Stat label="km">
+            <CountUp value={distanceWalkedMeters / 1000} format="km" delay={400} style={[type.numberLarge, { color: c.ink }]} />
+          </Stat>
+          <View style={styles.divider} />
+          <Stat label="steps">
+            <CountUp value={stepCount} delay={480} style={[type.numberLarge, { color: c.ink }]} />
+          </Stat>
+          <View style={styles.divider} />
+          <Stat label="min">
+            <CountUp value={minutes} delay={560} style={[type.numberLarge, { color: c.ink }]} />
+          </Stat>
+        </Animated.View>
+
+        {stats && (
+          <Animated.View entering={enter(2)} style={styles.week}>
+            {dailyStepGoal && stepsToday !== null ? (
+              <ProgressRing
+                progress={stepsToday / dailyStepGoal}
+                size={64}
+                strokeWidth={7}
+                color={c.mint}
+                trackColor={c.ringTrackOnForest}
+                delay={700}
+              >
+                <AppText variant="footnote" color={c.onForest} style={styles.ringText}>
+                  {Math.min(999, Math.round((stepsToday / dailyStepGoal) * 100))}%
+                </AppText>
+              </ProgressRing>
             ) : (
-              <XCircle size={48} color="#DC2626" strokeWidth={2.5} />
+              <ProgressRing
+                progress={stats.weekWalks / WEEKLY_GOAL}
+                size={64}
+                strokeWidth={7}
+                color={c.mint}
+                trackColor={c.ringTrackOnForest}
+                delay={700}
+              >
+                <AppText variant="headline" color={c.onForest} style={styles.ringText}>
+                  {Math.min(stats.weekWalks, 99)}/{WEEKLY_GOAL}
+                </AppText>
+              </ProgressRing>
             )}
-          </View>
-          <Text style={styles.statusTitle}>
-            {isCompleted ? 'Walk Completed On Time!' : 'Walk Concluded'}
-          </Text>
-          <Text style={styles.statusSubtitle}>
-            {isCompleted
-              ? 'You turned waiting time into healthy walking steps and returned with time to spare.'
-              : 'You stopped your walk and safely returned to your starting point.'}
-          </Text>
-        </View>
-
-        {/* Metrics Grid Card */}
-        <View style={styles.metricsCard}>
-          <View style={styles.metricsRow}>
-            <View style={styles.metricCell}>
-              <View style={styles.metricIconRow}>
-                <Clock size={16} color={COLORS.primary} />
-                <Text style={styles.metricLabel}>TOTAL TIME</Text>
+            <View style={{ flex: 1, gap: spacing.xxs }}>
+              <AppText variant="headline" color={c.onForest}>
+                {dailyStepGoal && stepsToday !== null
+                  ? goalReached
+                    ? 'Daily step goal reached'
+                    : `${(dailyStepGoal - stepsToday).toLocaleString()} steps to go today`
+                  : stats.weekWalks >= WEEKLY_GOAL
+                    ? 'Weekly goal reached'
+                    : `${WEEKLY_GOAL - stats.weekWalks} more this week`}
+              </AppText>
+              <View style={styles.streakRow}>
+                {stats.streakDays > 0 && <Flame size={14} color={c.mint} fill={c.mint} />}
+                <AppText variant="footnote" color={c.onForestMuted} style={{ flexShrink: 1 }}>
+                  {stats.streakDays > 1
+                    ? `${stats.streakDays}-day streak. Walk tomorrow to make it ${stats.streakDays + 1}.`
+                    : 'Walk again tomorrow to start a streak.'}
+                </AppText>
               </View>
-              <Text style={styles.metricValue}>
-                {formatDuration(elapsedSeconds)}
-              </Text>
             </View>
-
-            <View style={styles.metricDivider} />
-
-            <View style={styles.metricCell}>
-              <View style={styles.metricIconRow}>
-                <Route size={16} color={COLORS.primary} />
-                <Text style={styles.metricLabel}>DISTANCE</Text>
-              </View>
-              <Text style={styles.metricValue}>
-                {formatDistance(walkedDistanceMeters)}
-              </Text>
-            </View>
-
-            <View style={styles.metricDivider} />
-
-            <View style={styles.metricCell}>
-              <View style={styles.metricIconRow}>
-                <Footprints size={16} color={COLORS.primary} />
-                <Text style={styles.metricLabel}>STEPS</Text>
-              </View>
-              <Text style={styles.metricValue}>{stepCount.toLocaleString()}</Text>
-            </View>
-          </View>
-
-          <View style={styles.cushionRow}>
-            <ShieldCheck size={18} color={COLORS.safe} />
-            <Text style={styles.cushionText}>
-              Returned with ~{Math.round(remainingSeconds / 60)} min remaining on
-              your timer
-            </Text>
-          </View>
-        </View>
-
-        {/* Route Snapshot Map */}
-        {route && (
-          <View style={styles.mapCard}>
-            <Text style={styles.mapLabel}>WALK ROUTE SNAPSHOT</Text>
-            <UniversalMap
-              origin={origin}
-              routes={[route]}
-              selectedRouteIndex={0}
-              height={220}
-            />
-          </View>
+          </Animated.View>
         )}
 
-        {/* Return to Home CTA */}
-        <TouchableOpacity
-          style={styles.doneButton}
-          onPress={handleFinish}
-          activeOpacity={0.85}
-        >
-          <RotateCcw size={20} color="#FFFFFF" strokeWidth={2.5} />
-          <Text style={styles.doneButtonText}>Back to Home</Text>
-        </TouchableOpacity>
+        {route && (
+          <Animated.View entering={enter(3)} style={styles.mapWrap}>
+            <UniversalMap origin={origin} routes={[route]} selectedRouteIndex={0} height={180} />
+          </Animated.View>
+        )}
       </ScrollView>
+
+      <Animated.View entering={enter(4)} style={styles.footer}>
+        <Button size="lg" title="Done" onPress={handleDone} />
+      </Animated.View>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+function OutcomeBadge({ outcome }: { outcome: Outcome }) {
+  const c = useColors();
+  const styles = useThemedStyles(makeStyles);
+  const scale = useSharedValue(0.6);
+  const opacity = useSharedValue(0);
+  const iconScale = useSharedValue(0.4);
+
+  useEffect(() => {
+    opacity.value = withTiming(1, { duration: motion.base, easing: motion.easeOut });
+    scale.value = withSpring(1, motion.springBouncy);
+    iconScale.value = withDelay(120, withSpring(1, motion.springBouncy));
+  }, [opacity, scale, iconScale]);
+
+  const circleStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
+  const iconStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: iconScale.value }],
+  }));
+
+  const tone =
+    outcome === 'on_time'
+      ? { bg: c.mint, fg: c.forest, Icon: Check }
+      : outcome === 'late'
+        ? { bg: c.warningSoft, fg: c.warning, Icon: Clock3 }
+        : { bg: c.surfaceMuted, fg: c.ink, Icon: Flag };
+
+  return (
+    <Animated.View style={[styles.badge, { backgroundColor: tone.bg }, circleStyle]}>
+      <Animated.View style={iconStyle}>
+        <tone.Icon size={44} color={tone.fg} strokeWidth={3} />
+      </Animated.View>
+    </Animated.View>
+  );
+}
+
+function Stat({ label, children }: { label: string; children: React.ReactNode }) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={styles.stat}>
+      {children}
+      <AppText variant="caption">{label}</AppText>
+    </View>
+  );
+}
+
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: c.background,
   },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
+  scroll: {
+    padding: layout.screenPadding,
+    gap: spacing.lg,
   },
-  statusHeader: {
+  hero: {
     alignItems: 'center',
-    marginVertical: 16,
+    gap: spacing.xl,
+    paddingTop: spacing.xxl,
+    paddingBottom: spacing.sm,
   },
-  iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+  heroText: {
+    gap: spacing.sm,
+    alignItems: 'center',
+  },
+  center: {
+    textAlign: 'center',
+  },
+  badge: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
   },
-  iconCompleted: {
-    backgroundColor: '#D1FAE5',
-  },
-  iconInterrupted: {
-    backgroundColor: '#FEE2E2',
-  },
-  statusTitle: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: COLORS.textPrimary,
-    letterSpacing: -0.5,
-    marginBottom: 6,
-  },
-  statusSubtitle: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-    lineHeight: 20,
-    paddingHorizontal: 16,
-  },
-  metricsCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 22,
-    padding: 20,
-    marginVertical: 16,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  metricsRow: {
+  stats: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderColor: COLORS.border,
+    paddingVertical: spacing.xl,
+    backgroundColor: c.surface,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
+    ...shadows.card,
   },
-  metricCell: {
+  stat: {
     flex: 1,
     alignItems: 'center',
+    gap: spacing.xxs,
   },
-  metricIconRow: {
+  divider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: 'stretch',
+    backgroundColor: c.separator,
+  },
+  week: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
+    gap: spacing.lg,
+    padding: spacing.xl,
+    backgroundColor: c.forest,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
   },
-  metricLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: COLORS.textMuted,
-    letterSpacing: 1,
+  ringText: {
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
-  metricValue: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: COLORS.textPrimary,
-  },
-  metricDivider: {
-    width: 1,
-    height: 36,
-    backgroundColor: COLORS.border,
-  },
-  cushionRow: {
+  streakRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingTop: 14,
+    gap: spacing.xs,
   },
-  cushionText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.safe,
+  mapWrap: {
+    borderRadius: radius.lg,
+    overflow: 'hidden',
   },
-  mapCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 22,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    marginBottom: 20,
-  },
-  mapLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: COLORS.textMuted,
-    letterSpacing: 1,
-    marginBottom: 10,
-  },
-  doneButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    backgroundColor: COLORS.primary,
-    paddingVertical: 18,
-    borderRadius: 24,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  doneButtonText: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '800',
+  footer: {
+    paddingHorizontal: layout.screenPadding,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
   },
 });

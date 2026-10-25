@@ -46,9 +46,9 @@
 		<true/>
 	</dict>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Allow $(PRODUCT_NAME) to access your location</string>
+	<string>WalkWhile keeps tracking your walk with the screen off, so it can speak turns and tell you when to head back.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
-	<string>Allow $(PRODUCT_NAME) to access your location</string>
+	<string>WalkWhile keeps tracking your walk with the screen off, so it can speak turns and tell you when to head back.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>WalkWhile uses your location to discover safe, circular walking routes from your exact starting point and monitor your return trip.</string>
 	<key>NSMotionUsageDescription</key>
@@ -74,6 +74,11 @@
 			</array>
 		</dict>
 	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>audio</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>SplashScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>
@@ -97,7 +102,7 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UIUserInterfaceStyle</key>
-	<string>Light</string>
+	<string>Automatic</string>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
 </dict>

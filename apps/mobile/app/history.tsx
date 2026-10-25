@@ -1,28 +1,20 @@
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { CloudOff, Footprints, Route, Timer } from 'lucide-react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import { ChevronRight, CloudOff, Flame, Footprints } from 'lucide-react-native';
+import { AppText } from '../src/components/ui/AppText';
+import { Button } from '../src/components/ui/Button';
+import { ProgressRing } from '../src/components/ui/ProgressRing';
 import { formatWalkDate, outcomeBadge } from '../src/history/format';
+import { computeStats, WEEKLY_GOAL } from '../src/history/stats';
 import { fetchWalkHistory, HistoryWalk } from '../src/history/walkHistory';
-import { COLORS } from '../src/theme/colors';
+import { layout, motion, Palette, radius, spacing, useColors, useThemedStyles } from '../src/theme';
 import { formatDistance, formatDuration } from '../src/utils/location';
 
-function startOfWeek(now: Date): Date {
-  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const daysSinceMonday = (d.getDay() + 6) % 7;
-  d.setDate(d.getDate() - daysSinceMonday);
-  return d;
-}
-
 export default function HistoryScreen() {
+  const c = useColors();
+  const styles = useThemedStyles(makeStyles);
   const router = useRouter();
   const [walks, setWalks] = useState<HistoryWalk[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -60,22 +52,20 @@ export default function HistoryScreen() {
     setLoadingMore(false);
   };
 
-  const weekStart = startOfWeek(new Date()).getTime();
-  const thisWeek = walks.filter((w) => new Date(w.startedAt).getTime() >= weekStart);
-  const weekDistance = thisWeek.reduce((sum, w) => sum + w.distanceMeters, 0);
-  const weekSteps = thisWeek.reduce((sum, w) => sum + w.steps, 0);
-
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={COLORS.primary} />
+        <ActivityIndicator color={c.inkTertiary} />
       </View>
     );
   }
 
+  const stats = computeStats(walks);
+
   return (
     <FlatList
       style={styles.container}
+      contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={styles.content}
       data={walks}
       keyExtractor={(w) => w.id}
@@ -83,200 +73,228 @@ export default function HistoryScreen() {
       onEndReached={loadMore}
       onEndReachedThreshold={0.5}
       ListHeaderComponent={
-        <View>
-          {offline && (
-            <View style={styles.offlineBanner}>
-              <CloudOff size={16} color="#92400E" />
-              <Text style={styles.offlineText}>
-                Offline. Showing walks saved on this phone.
-              </Text>
+        walks.length > 0 ? (
+          <Animated.View entering={FadeIn.duration(motion.base)} style={styles.header}>
+            {offline && (
+              <View style={styles.offline}>
+                <CloudOff size={15} color={c.warning} />
+                <AppText variant="footnote" color={c.warning}>
+                  Offline. Showing walks saved on this phone.
+                </AppText>
+              </View>
+            )}
+            <View style={styles.week}>
+              <View style={styles.weekTop}>
+                <ProgressRing
+                  progress={stats.weekWalks / WEEKLY_GOAL}
+                  size={64}
+                  strokeWidth={7}
+                  trackColor={c.ringTrackOnForest}
+                >
+                  <AppText variant="headline" color={c.onForest} style={{ fontVariant: ['tabular-nums'] }}>
+                    {stats.weekWalks}/{WEEKLY_GOAL}
+                  </AppText>
+                </ProgressRing>
+                <View style={{ flex: 1, gap: spacing.xxs }}>
+                  <AppText variant="headline" color={c.onForest}>
+                    This week
+                  </AppText>
+                  {stats.streakDays > 0 ? (
+                    <View style={styles.streak}>
+                      <Flame size={14} color={c.mint} fill={c.mint} />
+                      <AppText variant="footnote" color={c.onForestMuted}>
+                        {stats.streakDays}-day streak
+                      </AppText>
+                    </View>
+                  ) : (
+                    <AppText variant="footnote" color={c.onForestMuted}>
+                      Walk today to start a streak
+                    </AppText>
+                  )}
+                </View>
+              </View>
+              <View style={styles.weekStats}>
+                <WeekStat value={formatDistance(stats.weekDistanceMeters)} label="walked" />
+                <WeekStat value={stats.weekSteps.toLocaleString()} label="steps" />
+                <WeekStat value={String(stats.totalWalks)} label="walks total" />
+              </View>
             </View>
-          )}
-          <View style={styles.weekCard}>
-            <Text style={styles.weekLabel}>THIS WEEK</Text>
-            <View style={styles.weekRow}>
-              <View style={styles.weekCell}>
-                <Text style={styles.weekValue}>{thisWeek.length}</Text>
-                <Text style={styles.weekUnit}>{thisWeek.length === 1 ? 'walk' : 'walks'}</Text>
-              </View>
-              <View style={styles.weekCell}>
-                <Text style={styles.weekValue}>{formatDistance(weekDistance)}</Text>
-                <Text style={styles.weekUnit}>walked</Text>
-              </View>
-              <View style={styles.weekCell}>
-                <Text style={styles.weekValue}>{weekSteps.toLocaleString()}</Text>
-                <Text style={styles.weekUnit}>steps</Text>
-              </View>
-            </View>
-          </View>
-        </View>
+            <AppText variant="footnote" style={styles.sectionLabel}>
+              Recent
+            </AppText>
+          </Animated.View>
+        ) : null
       }
       ListEmptyComponent={
         <View style={styles.empty}>
-          <Footprints size={36} color={COLORS.textMuted} />
-          <Text style={styles.emptyTitle}>No walks yet</Text>
-          <Text style={styles.emptyText}>
-            Your walks will show up here once you finish one.
-          </Text>
+          <View style={styles.emptyIcon}>
+            <Footprints size={28} color={c.mintInk} />
+          </View>
+          <AppText variant="title">No walks yet</AppText>
+          <AppText variant="subhead" style={{ textAlign: 'center' }}>
+            Next time you're waiting, take a short loop. It'll show up here.
+          </AppText>
+          <Button title="Plan a walk" variant="tinted" onPress={() => router.back()} style={{ marginTop: spacing.sm }} />
         </View>
       }
       ListFooterComponent={
-        loadingMore ? <ActivityIndicator style={{ marginVertical: 16 }} color={COLORS.primary} /> : null
+        loadingMore ? <ActivityIndicator style={{ marginVertical: spacing.lg }} color={c.inkTertiary} /> : null
       }
-      renderItem={({ item }) => {
-        const badge = outcomeBadge(item);
+      renderItem={({ item, index }) => {
+        const badge = outcomeBadge(item, c);
+        const first = index === 0;
+        const last = index === walks.length - 1;
         return (
-          <TouchableOpacity
-            style={styles.walkCard}
-            activeOpacity={0.85}
+          <Pressable
             onPress={() => router.push({ pathname: '/walk/[id]', params: { id: item.id } })}
+            style={({ pressed }) => [
+              styles.row,
+              first && styles.rowFirst,
+              last && styles.rowLast,
+              pressed && styles.rowPressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`${formatWalkDate(item.startedAt)}, ${formatDistance(item.distanceMeters)}, ${badge.label}`}
           >
-            <View style={styles.walkTop}>
-              <Text style={styles.walkDate}>{formatWalkDate(item.startedAt)}</Text>
+            <View style={[styles.rowInner, !first && styles.rowDivider]}>
+              <View style={{ flex: 1, gap: spacing.xxs }}>
+                <AppText variant="callout" style={{ fontWeight: '600' }}>
+                  {formatWalkDate(item.startedAt)}
+                </AppText>
+                <AppText variant="footnote">
+                  {formatDistance(item.distanceMeters)} · {formatDuration(item.durationSeconds)} ·{' '}
+                  {item.steps.toLocaleString()} steps
+                  {item.pending ? ' · not synced' : ''}
+                </AppText>
+              </View>
               <View style={[styles.badge, { backgroundColor: badge.background }]}>
-                <Text style={[styles.badgeText, { color: badge.color }]}>{badge.label}</Text>
+                <AppText variant="caption" color={badge.color} style={{ fontWeight: '700' }}>
+                  {badge.label}
+                </AppText>
               </View>
+              <ChevronRight size={16} color={c.inkTertiary} />
             </View>
-            <View style={styles.walkStats}>
-              <View style={styles.stat}>
-                <Route size={14} color={COLORS.textSecondary} />
-                <Text style={styles.statText}>{formatDistance(item.distanceMeters)}</Text>
-              </View>
-              <View style={styles.stat}>
-                <Timer size={14} color={COLORS.textSecondary} />
-                <Text style={styles.statText}>{formatDuration(item.durationSeconds)}</Text>
-              </View>
-              <View style={styles.stat}>
-                <Footprints size={14} color={COLORS.textSecondary} />
-                <Text style={styles.statText}>{item.steps.toLocaleString()} steps</Text>
-              </View>
-            </View>
-            {item.pending && <Text style={styles.pendingText}>Not synced yet</Text>}
-          </TouchableOpacity>
+          </Pressable>
         );
       }}
     />
   );
 }
 
-const styles = StyleSheet.create({
+function WeekStat({ value, label }: { value: string; label: string }) {
+  const c = useColors();
+  return (
+    <View style={{ flex: 1 }}>
+      <AppText variant="number" color={c.onForest}>
+        {value}
+      </AppText>
+      <AppText variant="caption" color={c.onForestMuted}>
+        {label}
+      </AppText>
+    </View>
+  );
+}
+
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: c.background,
   },
   content: {
-    padding: 16,
-    gap: 10,
+    paddingHorizontal: layout.screenPadding,
+    paddingBottom: spacing.huge,
   },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.background,
+    backgroundColor: c.background,
   },
-  offlineBanner: {
+  header: {
+    gap: spacing.lg,
+    paddingTop: spacing.sm,
+  },
+  offline: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    padding: 10,
-    borderRadius: 12,
-    backgroundColor: '#FEF3C7',
-    marginBottom: 10,
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: c.warningSoft,
   },
-  offlineText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#92400E',
+  week: {
+    padding: spacing.xl,
+    gap: spacing.xl,
+    backgroundColor: c.forest,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
   },
-  weekCard: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 20,
-    padding: 18,
-    marginBottom: 6,
-  },
-  weekLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    color: COLORS.accentSoft,
-    marginBottom: 10,
-  },
-  weekRow: {
-    flexDirection: 'row',
-  },
-  weekCell: {
-    flex: 1,
-  },
-  weekValue: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#FFFFFF',
-  },
-  weekUnit: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.accentSoft,
-  },
-  walkCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  walkTop: {
+  weekTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
+    gap: spacing.lg,
   },
-  walkDate: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
+  streak: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  weekStats: {
+    flexDirection: 'row',
+  },
+  sectionLabel: {
+    marginTop: spacing.sm,
+    marginBottom: -spacing.sm,
+    paddingHorizontal: spacing.xs,
+    fontWeight: '600',
+  },
+  row: {
+    backgroundColor: c.surface,
+    paddingLeft: spacing.lg,
+  },
+  rowFirst: {
+    marginTop: spacing.lg,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+  },
+  rowLast: {
+    borderBottomLeftRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
+  },
+  rowPressed: {
+    backgroundColor: c.surfaceMuted,
+  },
+  rowInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingRight: spacing.md,
+    minHeight: 64,
+  },
+  rowDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: c.separator,
   },
   badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  walkStats: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  stat: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  statText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-  },
-  pendingText: {
-    marginTop: 8,
-    fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.textMuted,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+    borderRadius: radius.full,
   },
   empty: {
     alignItems: 'center',
-    paddingVertical: 48,
-    gap: 8,
+    paddingTop: spacing.huge * 2,
+    paddingHorizontal: spacing.xl,
+    gap: spacing.sm,
   },
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
+  emptyIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: c.mintSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
   },
 });

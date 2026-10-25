@@ -1,15 +1,19 @@
-import { StyleSheet, Text, View } from 'react-native';
-import { RouteStep } from '@walkwhile/shared';
+import { useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import Animated, { FadeIn, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
   Flag,
+  Footprints,
   Navigation,
   RotateCcw,
 } from 'lucide-react-native';
-import { COLORS } from '../theme/colors';
+import { RouteStep } from '@walkwhile/shared';
+import { motion, Palette, radius, spacing, useColors, useThemedStyles } from '../theme';
 import { formatDistance } from '../utils/location';
+import { AppText } from './ui/AppText';
 
 interface TurnInstructionCardProps {
   step?: RouteStep;
@@ -19,196 +23,144 @@ interface TurnInstructionCardProps {
   stepCount?: number;
 }
 
-export const TurnInstructionCard: React.FC<TurnInstructionCardProps> = ({
+function StepIcon({ instruction }: { instruction: string }) {
+  const c = useColors();
+  const lower = instruction.toLowerCase();
+  const props = { size: 22, color: c.onForest, strokeWidth: 2.5 };
+  if (lower.includes('left')) return <ArrowLeft {...props} />;
+  if (lower.includes('right')) return <ArrowRight {...props} />;
+  if (lower.includes('turn around') || lower.includes('back')) return <RotateCcw {...props} />;
+  if (lower.includes('arrive') || lower.includes('starting point')) return <Flag {...props} />;
+  return <ArrowUp {...props} />;
+}
+
+/** Next turn, then a thin progress line with distance and steps. */
+export function TurnInstructionCard({
   step,
   nextStep,
   totalDistanceMeters,
   walkedDistanceMeters,
   stepCount,
-}) => {
-  if (!step) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.iconCircle}>
-          <Navigation size={22} color="#FFFFFF" />
-        </View>
-        <View style={styles.content}>
-          <Text style={styles.primaryInstruction}>
-            Follow pedestrian pathway
-          </Text>
-          <Text style={styles.subInstruction}>
-            Enjoy your walk and return on time
-          </Text>
-        </View>
-      </View>
-    );
-  }
+}: TurnInstructionCardProps) {
+  const c = useColors();
+  const styles = useThemedStyles(makeStyles);
+  const [trackWidth, setTrackWidth] = useState(0);
+  const progress =
+    totalDistanceMeters !== undefined && walkedDistanceMeters !== undefined
+      ? Math.min(1, walkedDistanceMeters / Math.max(1, totalDistanceMeters))
+      : null;
 
-  const getStepIcon = (instruction: string) => {
-    const lower = instruction.toLowerCase();
-    if (lower.includes('left')) {
-      return <ArrowLeft size={22} color="#FFFFFF" />;
-    }
-    if (lower.includes('right')) {
-      return <ArrowRight size={22} color="#FFFFFF" />;
-    }
-    if (lower.includes('turn around') || lower.includes('back')) {
-      return <RotateCcw size={22} color="#FFFFFF" />;
-    }
-    if (lower.includes('arrive') || lower.includes('starting point')) {
-      return <Flag size={22} color="#FFFFFF" />;
-    }
-    return <ArrowUp size={22} color="#FFFFFF" />;
-  };
+  // The fill is absolutely positioned and childless, so animating its width
+  // never re-lays-out anything else.
+  const fillStyle = useAnimatedStyle(() => ({
+    width: withTiming((progress ?? 0) * trackWidth, { duration: motion.slow, easing: motion.easeOut }),
+  }));
 
   return (
     <View style={styles.container}>
-      <View style={styles.mainRow}>
-        <View style={styles.iconCircle}>{getStepIcon(step.instruction)}</View>
-
+      <Animated.View key={step?.instruction ?? 'none'} entering={FadeIn.duration(motion.base)} style={styles.mainRow}>
+        <View style={styles.icon}>
+          {step ? <StepIcon instruction={step.instruction} /> : <Navigation size={22} color={c.onForest} />}
+        </View>
         <View style={styles.content}>
-          <Text style={styles.distanceText}>
-            {formatDistance(step.distanceMeters)}
-          </Text>
-          <Text style={styles.primaryInstruction} numberOfLines={2}>
-            {step.instruction}
-          </Text>
+          {step ? (
+            <>
+              <AppText variant="number">{formatDistance(step.distanceMeters)}</AppText>
+              <AppText variant="callout" numberOfLines={2}>
+                {step.instruction}
+              </AppText>
+            </>
+          ) : (
+            <>
+              <AppText variant="headline">Follow the line</AppText>
+              <AppText variant="footnote">It brings you back to your spot.</AppText>
+            </>
+          )}
         </View>
-      </View>
+      </Animated.View>
 
-      {nextStep ? (
-        <View style={styles.nextRow}>
-          <Text style={styles.nextLabel}>THEN:</Text>
-          <Text style={styles.nextText} numberOfLines={1}>
-            {nextStep.instruction}
-          </Text>
-        </View>
-      ) : null}
+      {nextStep && (
+        <AppText variant="caption" numberOfLines={1} style={styles.next}>
+          Then {nextStep.instruction.charAt(0).toLowerCase() + nextStep.instruction.slice(1)}
+        </AppText>
+      )}
 
-      {totalDistanceMeters !== undefined && walkedDistanceMeters !== undefined ? (
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBarBackground}>
-            <View
-              style={[
-                styles.progressBarFill,
-                {
-                  width: `${Math.min(
-                    100,
-                    Math.round(
-                      (walkedDistanceMeters / Math.max(1, totalDistanceMeters)) *
-                        100
-                    )
-                  )}%`,
-                },
-              ]}
-            />
+      {progress !== null && (
+        <View style={styles.progress}>
+          <View style={styles.track} onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}>
+            <Animated.View style={[styles.fill, fillStyle]} />
           </View>
-          <View style={styles.progressLabels}>
-            <Text style={styles.progressText}>
-              {formatDistance(walkedDistanceMeters)} walked
-              {stepCount ? ` · ${stepCount.toLocaleString()} steps` : ''}
-            </Text>
-            <Text style={styles.progressText}>
-              {formatDistance(totalDistanceMeters)} total
-            </Text>
+          <View style={styles.progressRow}>
+            <AppText variant="caption">
+              {formatDistance(walkedDistanceMeters ?? 0)} of {formatDistance(totalDistanceMeters ?? 0)}
+            </AppText>
+            {!!stepCount && (
+              <View style={styles.steps}>
+                <Footprints size={12} color={c.inkTertiary} />
+                <AppText variant="caption">{stepCount.toLocaleString()} steps</AppText>
+              </View>
+            )}
           </View>
         </View>
-      ) : null}
+      )}
     </View>
   );
-};
+}
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   container: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    padding: 16,
-    marginVertical: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    padding: spacing.lg,
+    gap: spacing.md,
+    backgroundColor: c.surface,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
   },
   mainRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.md,
   },
-  iconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: COLORS.primary,
+  icon: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
+    backgroundColor: c.forest,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
   },
   content: {
     flex: 1,
   },
-  distanceText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: COLORS.accent,
-    letterSpacing: 0.5,
-    marginBottom: 2,
+  next: {
+    marginTop: -spacing.xs,
+    marginLeft: 48 + spacing.md,
   },
-  primaryInstruction: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-    lineHeight: 20,
+  progress: {
+    gap: spacing.xs,
   },
-  subInstruction: {
-    fontSize: 13,
-    color: COLORS.textMuted,
-    marginTop: 2,
-  },
-  nextRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderColor: COLORS.border,
-  },
-  nextLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: COLORS.textMuted,
-    marginRight: 6,
-    letterSpacing: 0.5,
-  },
-  nextText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-    flex: 1,
-  },
-  progressContainer: {
-    marginTop: 12,
-  },
-  progressBarBackground: {
-    height: 6,
-    backgroundColor: COLORS.surfaceSubtle,
-    borderRadius: 3,
+  track: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: c.surfaceMuted,
     overflow: 'hidden',
   },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: COLORS.primaryLight,
-    borderRadius: 3,
+  fill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 2,
+    backgroundColor: c.mint,
   },
-  progressLabels: {
+  progressRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 4,
   },
-  progressText: {
-    fontSize: 11,
-    color: COLORS.textMuted,
-    fontWeight: '500',
+  steps: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
 });

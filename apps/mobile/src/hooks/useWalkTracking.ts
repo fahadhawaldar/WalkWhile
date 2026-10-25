@@ -3,6 +3,7 @@ import * as Location from 'expo-location';
 import { Pedometer } from 'expo-sensors';
 import { Coordinate, WalkingRoute } from '@walkwhile/shared';
 import { useWalkStore } from '../store/useWalkStore';
+import { startBackgroundTracking } from '../utils/backgroundLocation';
 import { bearingBetween, distanceBetween } from '../utils/location';
 
 // Fixes less accurate than this still move the marker but don't count
@@ -98,24 +99,35 @@ export function useWalkTracking(route: WalkingRoute | undefined): WalkTracking {
       return () => clearInterval(timer);
     }
 
-    let subscription: Location.LocationSubscription | null = null;
+    let subscription: { remove: () => void } | null = null;
     let headingSubscription: Location.LocationSubscription | null = null;
     let cancelled = false;
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted' || cancelled) return;
-      subscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.BestForNavigation,
-          distanceInterval: MIN_MOVE_METERS,
-          timeInterval: 2000,
-        },
-        (loc) =>
-          accept(
-            { latitude: loc.coords.latitude, longitude: loc.coords.longitude },
-            loc.coords.accuracy
-          )
-      );
+      const onLocation = (loc: Location.LocationObject) =>
+        accept(
+          { latitude: loc.coords.latitude, longitude: loc.coords.longitude },
+          loc.coords.accuracy
+        );
+      // Prefer updates that continue with the phone locked; fall back to
+      // on-screen tracking if background location was not allowed.
+      const stopBackground = await startBackgroundTracking(onLocation, {
+        distanceInterval: MIN_MOVE_METERS,
+        timeInterval: 2000,
+      });
+      if (stopBackground) {
+        subscription = { remove: stopBackground };
+      } else {
+        subscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.BestForNavigation,
+            distanceInterval: MIN_MOVE_METERS,
+            timeInterval: 2000,
+          },
+          onLocation
+        );
+      }
       // The compass shows which way the phone points, even when standing still.
       headingSubscription = await Location.watchHeadingAsync((h) => {
         const value = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;

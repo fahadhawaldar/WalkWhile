@@ -7,7 +7,8 @@ import {
   View,
 } from 'react-native';
 import { Compass } from 'lucide-react-native';
-import { COLORS } from '../theme/colors';
+// The web map is a development preview; it stays light.
+import { lightColors as colors } from '../theme';
 import { UniversalMapProps } from './mapTypes';
 
 
@@ -122,7 +123,7 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
                 .join(' ');
 
               const color =
-                COLORS.routeColors[i % COLORS.routeColors.length];
+                colors.routeColors[i % colors.routeColors.length];
               return (
                 <polyline
                   key={route.id || i}
@@ -148,8 +149,8 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
                   .join(' ')}
                 fill="none"
                 stroke={
-                  COLORS.routeColors[
-                    selectedRouteIndex % COLORS.routeColors.length
+                  colors.routeColors[
+                    selectedRouteIndex % colors.routeColors.length
                   ]
                 }
                 strokeWidth="4"
@@ -169,7 +170,7 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
                   })
                   .join(' ')}
                 fill="none"
-                stroke={COLORS.returnRouteColor}
+                stroke={colors.returnRoute}
                 strokeWidth="3.5"
                 strokeDasharray="2,2"
                 strokeLinecap="round"
@@ -213,7 +214,7 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
 
         {/* Compass & Attribution Indicator */}
         <View style={styles.watermark}>
-          <Compass size={14} color={COLORS.textMuted} />
+          <Compass size={14} color={colors.inkTertiary} />
           <Text style={styles.watermarkText}>OpenStreetMap Pedestrian Grid</Text>
         </View>
 
@@ -229,7 +230,7 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
                   selectedRouteIndex === idx && styles.routeBadgePillActive,
                   {
                     borderColor:
-                      COLORS.routeColors[idx % COLORS.routeColors.length],
+                      colors.routeColors[idx % colors.routeColors.length],
                   },
                 ]}
               >
@@ -238,7 +239,7 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
                     styles.routePillDot,
                     {
                       backgroundColor:
-                        COLORS.routeColors[idx % COLORS.routeColors.length],
+                        colors.routeColors[idx % colors.routeColors.length],
                     },
                   ]}
                 />
@@ -266,7 +267,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#EBF4F0',
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: colors.separator,
   },
   mapCanvas: {
     flex: 1,
@@ -282,14 +283,14 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 1,
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.forest,
   },
   gridLineV: {
     position: 'absolute',
     top: 0,
     bottom: 0,
     width: 1,
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.forest,
   },
   originMarker: {
     position: 'absolute',
@@ -301,7 +302,7 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.forest,
     borderWidth: 3,
     borderColor: '#FFFFFF',
     shadowColor: '#000',
@@ -310,7 +311,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   originBadge: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.forest,
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 6,
@@ -359,7 +360,7 @@ const styles = StyleSheet.create({
   watermarkText: {
     fontSize: 10,
     fontWeight: '600',
-    color: COLORS.textMuted,
+    color: colors.inkTertiary,
   },
   routeSelectorOverlay: {
     position: 'absolute',
@@ -394,10 +395,10 @@ const styles = StyleSheet.create({
   routePillText: {
     fontSize: 11,
     fontWeight: '700',
-    color: COLORS.textSecondary,
+    color: colors.inkSecondary,
   },
   routePillTextActive: {
-    color: COLORS.textPrimary,
+    color: colors.ink,
     fontWeight: '800',
   },
 });

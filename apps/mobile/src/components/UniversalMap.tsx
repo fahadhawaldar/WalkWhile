@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, useColorScheme, View } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import Svg, { Defs, Path, RadialGradient, Stop } from 'react-native-svg';
 import { GeoJSONPosition } from '@walkwhile/shared';
-import { COLORS } from '../theme/colors';
+import { Palette, useColors, useThemedStyles } from '../theme';
 import { UniversalMapProps } from './mapTypes';
 
 const EDGE_PADDING = { top: 40, right: 40, bottom: 40, left: 40 };
@@ -13,7 +13,6 @@ const FOLLOW_ALTITUDE = 350;
 const FOLLOW_ZOOM = 18;
 // Size of the "you" marker, including the heading cone around the dot.
 const YOU_SIZE = 64;
-const WALKED_COLOR = 'rgba(100, 116, 139, 0.5)';
 const NO_PADDING = { top: 0, bottom: 0 };
 
 function toLatLng([longitude, latitude]: GeoJSONPosition) {
@@ -38,6 +37,9 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
   fullScreen = false,
   mapPadding = NO_PADDING,
 }) => {
+  const scheme = useColorScheme();
+  const c = useColors();
+  const styles = useThemedStyles(makeStyles);
   const mapRef = useRef<MapView>(null);
 
   const routeCoords = useMemo(
@@ -112,10 +114,13 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
         }}
         onMapReady={onMapReady}
         mapPadding={{ ...mapPadding, left: 0, right: 0 }}
+        userInterfaceStyle={scheme === 'dark' ? 'dark' : 'light'}
         // While following, keep North up so the heading cone reads correctly.
         rotateEnabled={!followUser}
         pitchEnabled={!followUser}
-        showsUserLocation={!currentPosition}
+        // The start marker already sits where the walker stands; the live
+        // position is drawn by our own marker during a walk.
+        showsUserLocation={false}
         showsPointsOfInterest
         showsCompass={false}
         toolbarEnabled={false}
@@ -129,8 +134,8 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
               coordinates={selected ? aheadCoords : routeCoords[i]}
               strokeColor={
                 selected
-                  ? COLORS.routeColors[i % COLORS.routeColors.length]
-                  : 'rgba(100, 116, 139, 0.55)'
+                  ? c.routeColors[i % c.routeColors.length]
+                  : c.routeInactive
               }
               strokeWidth={selected ? 5 : 3}
               lineJoin="round"
@@ -144,7 +149,7 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
         {walkedCoords.length > 1 && (
           <Polyline
             coordinates={walkedCoords}
-            strokeColor={WALKED_COLOR}
+            strokeColor={c.routeWalked}
             strokeWidth={5}
             lineJoin="round"
             lineCap="round"
@@ -154,7 +159,7 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
         {returnCoords.length > 1 && (
           <Polyline
             coordinates={returnCoords}
-            strokeColor={COLORS.returnRouteColor}
+            strokeColor={c.returnRoute}
             strokeWidth={5}
             lineDashPattern={[8, 6]}
           />
@@ -162,7 +167,8 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
 
         <Marker coordinate={origin} anchor={{ x: 0.5, y: 0.5 }}>
           <View style={styles.originMarker}>
-            <Text style={styles.originText}>START</Text>
+            <View style={styles.originDot} />
+            <Text style={styles.originText}>Your spot</Text>
           </View>
         </Marker>
 
@@ -177,8 +183,8 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
                 >
                   <Defs>
                     <RadialGradient id="cone" cx="50%" cy="50%" r="50%">
-                      <Stop offset="0.2" stopColor="#2563EB" stopOpacity="0.55" />
-                      <Stop offset="1" stopColor="#2563EB" stopOpacity="0" />
+                      <Stop offset="0.2" stopColor={c.you} stopOpacity="0.55" />
+                      <Stop offset="1" stopColor={c.you} stopOpacity="0" />
                     </RadialGradient>
                   </Defs>
                   {/* 70 degree wedge pointing up from the centre. */}
@@ -193,60 +199,46 @@ export const UniversalMap: React.FC<UniversalMapProps> = ({
         )}
       </MapView>
 
-      {routes.length > 1 && onSelectRoute && (
-        <View style={styles.selector}>
-          {routes.map((_, i) => {
-            const color = COLORS.routeColors[i % COLORS.routeColors.length];
-            const selected = i === selectedRouteIndex;
-            return (
-              <TouchableOpacity
-                key={i}
-                onPress={() => onSelectRoute(i)}
-                style={[
-                  styles.selectorPill,
-                  { borderColor: color },
-                  selected && { backgroundColor: color },
-                ]}
-              >
-                <Text style={[styles.selectorText, selected && styles.selectorTextActive]}>
-                  {i + 1}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      )}
-
       <Text style={[styles.attribution, { bottom: mapPadding.bottom + 4 }]}>Routes © OpenStreetMap contributors</Text>
     </View>
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   container: {
     borderRadius: 20,
     overflow: 'hidden',
-    backgroundColor: COLORS.surfaceSubtle,
+    backgroundColor: c.surfaceMuted,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: c.separator,
   },
   fullScreen: {
     flex: 1,
-    backgroundColor: COLORS.surfaceSubtle,
+    backgroundColor: c.surfaceMuted,
   },
   originMarker: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: c.forest,
+    paddingLeft: 6,
+    paddingRight: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: c.white,
+  },
+  originDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: c.mint,
   },
   originText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+    color: c.white,
+    fontSize: 11,
+    fontWeight: '700',
   },
   you: {
     width: YOU_SIZE,
@@ -258,7 +250,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: 'rgba(37, 99, 235, 0.25)',
+    backgroundColor: 'rgba(47, 107, 255, 0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -266,41 +258,18 @@ const styles = StyleSheet.create({
     width: 14,
     height: 14,
     borderRadius: 7,
-    backgroundColor: '#2563EB',
+    backgroundColor: c.you,
     borderWidth: 2,
     borderColor: '#FFFFFF',
-  },
-  selector: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    flexDirection: 'row',
-    gap: 6,
-  },
-  selectorPill: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 2,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  selectorText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
-  },
-  selectorTextActive: {
-    color: '#FFFFFF',
   },
   attribution: {
     position: 'absolute',
     bottom: 4,
     left: 8,
     fontSize: 9,
-    color: COLORS.textSecondary,
-    backgroundColor: 'rgba(255,255,255,0.7)',
+    color: c.inkSecondary,
+    // Translucent page colour behind the small print.
+    backgroundColor: `${c.background}B3`,
     paddingHorizontal: 4,
     borderRadius: 4,
   },

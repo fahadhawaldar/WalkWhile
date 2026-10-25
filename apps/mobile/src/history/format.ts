@@ -1,4 +1,4 @@
-import { COLORS } from '../theme/colors';
+import { Palette } from '../theme';
 import { HistoryWalk } from './walkHistory';
 
 /** "Today, 2:15 PM", "Yesterday, 9:00 AM" or "Sat 24 Oct, 2:15 PM". */
@@ -14,11 +14,11 @@ export function formatWalkDate(iso: string): string {
   return `${day}, ${time}`;
 }
 
-export function outcomeBadge(walk: HistoryWalk): { label: string; color: string; background: string } {
+export function outcomeBadge(walk: HistoryWalk, colors: Palette): { label: string; color: string; background: string } {
   if (walk.outcome === 'interrupted') {
-    return { label: 'Stopped early', color: COLORS.textSecondary, background: COLORS.surfaceSubtle };
+    return { label: 'Ended early', color: colors.inkSecondary, background: colors.surfaceMuted };
   }
   return walk.returnedOnTime
-    ? { label: 'Back on time', color: COLORS.safe, background: '#ECFDF5' }
-    : { label: 'Back late', color: '#B45309', background: '#FEF3C7' };
+    ? { label: 'On time', color: colors.mintInk, background: colors.mintSoft }
+    : { label: 'Late', color: colors.warning, background: colors.warningSoft };
 }

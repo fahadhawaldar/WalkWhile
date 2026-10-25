@@ -1,35 +1,45 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Alert,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Plus, Square, Undo2, UserCheck } from 'lucide-react-native';
+import Animated, { FadeIn, FadeInDown, FadeOut, SlideInDown } from 'react-native-reanimated';
+import { CornerUpLeft, Plus, Square, UserCheck, Volume2, VolumeX } from 'lucide-react-native';
+import { ReturnRouteStatus } from '@walkwhile/shared';
 import { WalkWhileApiClient } from '../src/api/client';
 import { TurnInstructionCard } from '../src/components/TurnInstructionCard';
 import { UniversalMap } from '../src/components/UniversalMap';
 import { WalkStatusBar } from '../src/components/WalkStatusBar';
+import { AppText } from '../src/components/ui/AppText';
+import { Button } from '../src/components/ui/Button';
+import { PressableScale } from '../src/components/ui/PressableScale';
 import { recordFinishedWalk } from '../src/history/walkHistory';
+import { useVoiceGuidance } from '../src/hooks/useVoiceGuidance';
 import { useWalkTracking } from '../src/hooks/useWalkTracking';
 import { useWalkStore } from '../src/store/useWalkStore';
-import { COLORS } from '../src/theme/colors';
+import { motion, Palette, radius, shadows, spacing, useColors, useThemedStyles } from '../src/theme';
+import { haptics } from '../src/utils/haptics';
 import { distanceBetween } from '../src/utils/location';
 import { cancelWalkAlerts, scheduleWalkAlerts } from '../src/utils/notifications';
+import { minutesOf } from '../src/utils/routeName';
 
 const RETURN_CHECK_INTERVAL_MS = 15_000;
+// Without a fresh return estimate for this long, say so instead of
+// pretending the status is current.
+const STALE_AFTER_MS = 45_000;
 // Close enough to the start to count as back.
 const ARRIVED_METERS = 35;
 // Share of the route that must be walked before arriving counts as finishing.
 const MIN_PROGRESS_TO_FINISH = 0.85;
 const OFF_ROUTE_METERS = 50;
 const EXTEND_MINUTES = 5;
+const TOAST_MS = 4_000;
+
+const SEVERITY: Record<ReturnRouteStatus, number> = { safe: 0, warning: 1, urgent: 2, overdue: 3 };
 
 export default function ActiveWalkScreen() {
+  const c = useColors();
+  const styles = useThemedStyles(makeStyles);
   useKeepAwake();
   const router = useRouter();
   const {
@@ -54,6 +64,8 @@ export default function ActiveWalkScreen() {
     interruptWalk,
     extendWalk,
     updateReturnAssessment,
+    voiceEnabled,
+    setVoiceEnabled,
   } = useWalkStore();
 
   const route = generatedRoutes[selectedRouteIndex];
@@ -64,6 +76,18 @@ export default function ActiveWalkScreen() {
   // centred in the visible part.
   const [topHudHeight, setTopHudHeight] = useState(0);
   const [bottomHudHeight, setBottomHudHeight] = useState(0);
+  const [lastCheckAt, setLastCheckAt] = useState(() => Date.now());
+  const [toast, setToast] = useState<string | null>(null);
+  const [headingBack, setHeadingBack] = useState(false);
+
+  const showToast = useCallback((text: string) => {
+    setToast(text);
+  }, []);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), TOAST_MS);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const finish = useCallback(
     (completed: boolean) => {
@@ -115,6 +139,7 @@ export default function ActiveWalkScreen() {
           action: result.recommendedAction,
           message: result.message,
         });
+        setLastCheckAt(Date.now());
       } catch (err) {
         console.warn('Failed to refresh return evaluation:', err);
       }
@@ -122,6 +147,15 @@ export default function ActiveWalkScreen() {
     const timer = setInterval(check, RETURN_CHECK_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [updateReturnAssessment]);
+
+  // A buzz whenever the return status gets more serious, so the walker
+  // notices without looking.
+  const lastSeverity = useRef(SEVERITY[returnSafetyStatus]);
+  useEffect(() => {
+    const severity = SEVERITY[returnSafetyStatus] ?? 0;
+    if (severity > lastSeverity.current) haptics.warning();
+    lastSeverity.current = severity;
+  }, [returnSafetyStatus]);
 
   // Arrival detection.
   useEffect(() => {
@@ -136,7 +170,9 @@ export default function ActiveWalkScreen() {
 
   const handleHeadBackNow = async (reason: 'manual' | 'arrived') => {
     const state = useWalkStore.getState();
-    if (!state.currentPosition) return;
+    if (!state.currentPosition || headingBack) return;
+    haptics.tap();
+    setHeadingBack(true);
     try {
       const result = await WalkWhileApiClient.calculateReturnRoute({
         originalOrigin: state.origin,
@@ -146,36 +182,72 @@ export default function ActiveWalkScreen() {
         safetyBufferMinutes: state.safetyBufferMinutes,
       });
       triggerReturn(result.route);
-      const minutes = Math.max(1, Math.round(result.calibratedDurationSeconds / 60));
-      Alert.alert(
-        reason === 'arrived' ? 'Heading back' : 'Return route ready',
-        `Follow the red dashed line. About ${minutes} min back to your starting point.`
+      setLastCheckAt(Date.now());
+      const minutes = minutesOf(result.calibratedDurationSeconds);
+      showToast(
+        reason === 'arrived'
+          ? `On your way. About ${minutes} min back, follow the red line.`
+          : `Shortest way back: about ${minutes} min. Follow the red line.`
       );
     } catch {
       triggerReturn();
+      showToast('Heading back. Retrace your route to your spot.');
+    } finally {
+      setHeadingBack(false);
     }
   };
 
+  const handleExtend = () => {
+    haptics.selection();
+    extendWalk(EXTEND_MINUTES);
+    showToast(`Added ${EXTEND_MINUTES} min. New time: ${useWalkStore.getState().availableMinutes} min.`);
+  };
+
   const handleEndWalk = () => {
-    Alert.alert('End Walk', 'Are you sure you want to stop this walk?', [
-      { text: 'Continue Walking', style: 'cancel' },
-      { text: 'Stop Walk', style: 'destructive', onPress: () => finish(false) },
+    Alert.alert('End this walk?', 'It will be saved to your walks.', [
+      { text: 'Keep walking', style: 'cancel' },
+      {
+        text: 'End walk',
+        style: 'destructive',
+        onPress: () => {
+          haptics.thud();
+          finish(false);
+        },
+      },
     ]);
   };
 
-  const steps =
-    activeState === 'returning' && returnRoute
-      ? returnRoute.instructions
-      : route?.instructions ?? [];
-  const stepIndex =
-    activeState === 'returning'
-      ? 0
-      : Math.max(
-          0,
-          steps.findIndex((s) => progressIndex <= s.waypointIndices[1])
-        );
+  const returning = activeState === 'returning';
+  const steps = returning && returnRoute ? returnRoute.instructions : route?.instructions ?? [];
+  const stepIndex = returning
+    ? 0
+    : Math.max(0, steps.findIndex((s) => progressIndex <= s.waypointIndices[1]));
   const currentStep = steps[stepIndex];
   const nextStep = steps[stepIndex + 1];
+
+  const backBy = startTime !== null ? new Date(startTime + availableMinutes * 60_000) : null;
+  const returnMinutes = returnRoute ? minutesOf(returnRoute.calibratedDurationSeconds) : null;
+  const stale = Date.now() - lastCheckAt > STALE_AFTER_MS;
+  const offRoute = activeState === 'walking' && offRouteMeters > OFF_ROUTE_METERS;
+
+  const { say } = useVoiceGuidance({
+    enabled: voiceEnabled,
+    active: activeState === 'walking' || returning,
+    guideRoute: returning && returnRoute ? returnRoute : route,
+    steps,
+    stepIndex,
+    currentPosition,
+    remainingSeconds,
+    availableMinutes,
+    status: returnSafetyStatus,
+    returnMinutes,
+    offRoute,
+  });
+  // Banners are spoken too, for a walker who isn't looking.
+  useEffect(() => {
+    if (toast) say(toast);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toast]);
 
   return (
     <View style={styles.container}>
@@ -185,7 +257,7 @@ export default function ActiveWalkScreen() {
         routes={route ? [route] : []}
         selectedRouteIndex={0}
         currentPosition={currentPosition}
-        returnRoute={activeState === 'returning' ? returnRoute : null}
+        returnRoute={returning ? returnRoute : null}
         followUser
         heading={heading}
         progressIndex={progressIndex}
@@ -194,8 +266,9 @@ export default function ActiveWalkScreen() {
       />
 
       {/* Time left and return status, floating over the top of the map */}
-      <View
-        style={[styles.topHud, { paddingTop: insets.top + 8 }]}
+      <Animated.View
+        entering={FadeInDown.duration(motion.slow).easing(motion.easeOutFn)}
+        style={[styles.topHud, { paddingTop: insets.top + spacing.sm }]}
         onLayout={(e) => setTopHudHeight(e.nativeEvent.layout.height)}
         pointerEvents="box-none"
       >
@@ -203,14 +276,31 @@ export default function ActiveWalkScreen() {
           remainingSeconds={remainingSeconds}
           status={returnSafetyStatus}
           message={returnSafetyMessage}
+          backBy={backBy}
+          returnMinutes={returnMinutes}
+          stale={stale}
+          returning={returning}
         />
-      </View>
+        {toast && (
+          <Animated.View
+            key={toast}
+            entering={FadeInDown.duration(motion.base).easing(motion.easeOutFn)}
+            exiting={FadeOut.duration(motion.base)}
+            style={styles.toast}
+            accessibilityLiveRegion="polite"
+          >
+            <AppText variant="footnote" color={c.onForest}>
+              {toast}
+            </AppText>
+          </Animated.View>
+        )}
+      </Animated.View>
 
-      <View
-        style={[styles.bottomHud, { paddingBottom: insets.bottom + 12 }]}
+      <Animated.View
+        entering={SlideInDown.duration(motion.slow).easing(motion.easeOutFn)}
+        style={[styles.bottomHud, { paddingBottom: insets.bottom + spacing.md }]}
         onLayout={(e) => setBottomHudHeight(e.nativeEvent.layout.height)}
       >
-        {/* Turn-by-Turn Instruction & Progress */}
         <TurnInstructionCard
           step={currentStep}
           nextStep={nextStep}
@@ -219,173 +309,159 @@ export default function ActiveWalkScreen() {
           stepCount={stepCount}
         />
 
-        {activeState === 'walking' && offRouteMeters > OFF_ROUTE_METERS && (
-          <View style={styles.offRouteBanner}>
-            <Text style={styles.offRouteText}>
-              You are off the route. That's fine, just keep an eye on the timer.
-            </Text>
-          </View>
+        {offRoute && (
+          <Animated.View entering={FadeIn.duration(motion.base)} exiting={FadeOut.duration(motion.fast)} style={styles.offRoute}>
+            <AppText variant="footnote" color={c.warning} style={{ textAlign: 'center', fontWeight: '600' }}>
+              Off the route. That's fine, just watch the timer.
+            </AppText>
+          </Animated.View>
         )}
 
         {waitType === 'flexible' && activeState === 'walking' && (
-          <View style={styles.flexibleRow}>
-            <TouchableOpacity
-              style={styles.arrivedButton}
+          <View style={styles.row}>
+            <Button
+              title="They're here"
+              style={{ flex: 1 }}
+              loading={headingBack}
               onPress={() => handleHeadBackNow('arrived')}
-              activeOpacity={0.85}
-            >
-              <UserCheck size={18} color="#FFFFFF" strokeWidth={2.5} />
-              <Text style={styles.arrivedButtonText}>They're here</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.extendButton}
-              onPress={() => extendWalk(EXTEND_MINUTES)}
-              activeOpacity={0.85}
-            >
-              <Plus size={16} color={COLORS.primary} strokeWidth={2.5} />
-              <Text style={styles.extendButtonText}>{EXTEND_MINUTES} min</Text>
-            </TouchableOpacity>
+              icon={<UserCheck size={18} color={c.onForest} strokeWidth={2.4} />}
+            />
+            <Button
+              title={`${EXTEND_MINUTES} min`}
+              variant="tinted"
+              onPress={handleExtend}
+              accessibilityHint="They're running late; add five minutes"
+              icon={<Plus size={16} color={c.mintInk} strokeWidth={2.6} />}
+            />
           </View>
         )}
 
-        {/* Action Controls */}
-        <View style={styles.controlsRow}>
-          <TouchableOpacity
-            style={styles.returnButton}
-            onPress={() => handleHeadBackNow('manual')}
-            activeOpacity={0.8}
+        <View style={styles.row}>
+          {!returning ? (
+            <Button
+              title="Head back"
+              variant={waitType === 'flexible' ? 'secondary' : SEVERITY[returnSafetyStatus] > 0 ? 'primary' : 'secondary'}
+              style={{ flex: 1 }}
+              loading={headingBack && waitType !== 'flexible'}
+              onPress={() => handleHeadBackNow('manual')}
+              accessibilityHint="Shows the shortest way back to your spot"
+              icon={
+                <CornerUpLeft
+                  size={18}
+                  strokeWidth={2.4}
+                  color={waitType !== 'flexible' && SEVERITY[returnSafetyStatus] > 0 ? c.onForest : c.ink}
+                />
+              }
+            />
+          ) : (
+            <View style={[styles.returningPill, { flex: 1 }]}>
+              <CornerUpLeft size={16} color={c.mintInk} strokeWidth={2.4} />
+              <AppText variant="callout" color={c.mintInk} style={{ fontWeight: '600' }}>
+                On the way back
+              </AppText>
+            </View>
+          )}
+          <PressableScale
+            onPress={() => {
+              haptics.selection();
+              setVoiceEnabled(!voiceEnabled);
+            }}
+            style={styles.voice}
+            accessibilityLabel={voiceEnabled ? 'Mute voice guidance' : 'Turn on voice guidance'}
+            accessibilityState={{ selected: voiceEnabled }}
           >
-            <Undo2 size={18} color="#92400E" strokeWidth={2.5} />
-            <Text style={styles.returnButtonText}>Head Back (Shortest)</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.stopButton}
+            {voiceEnabled ? (
+              <Volume2 size={20} color={c.ink} strokeWidth={2.2} />
+            ) : (
+              <VolumeX size={20} color={c.inkTertiary} strokeWidth={2.2} />
+            )}
+          </PressableScale>
+          <PressableScale
             onPress={handleEndWalk}
-            activeOpacity={0.8}
+            style={styles.stop}
+            accessibilityLabel="End walk"
           >
-            <Square size={16} color="#DC2626" fill="#DC2626" />
-            <Text style={styles.stopButtonText}>Stop</Text>
-          </TouchableOpacity>
+            <Square size={16} color={c.urgent} fill={c.urgent} />
+          </PressableScale>
         </View>
-      </View>
+      </Animated.View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: c.background,
   },
   topHud: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+  },
+  toast: {
+    alignSelf: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.full,
+    backgroundColor: c.forest,
+    ...shadows.raised,
   },
   bottomHud: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    backgroundColor: COLORS.background,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    gap: spacing.md,
+    backgroundColor: c.background,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    borderCurve: 'continuous',
+    ...shadows.raised,
   },
-  controlsRow: {
+  row: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
+    gap: spacing.md,
   },
-  returnButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#FEF3C7',
-    paddingVertical: 14,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: '#F59E0B',
+  offRoute: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: c.warningSoft,
   },
-  returnButtonText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#92400E',
-  },
-  stopButton: {
+  returningPill: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#FEE2E2',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: '#EF4444',
+    gap: spacing.sm,
+    height: 52,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
+    backgroundColor: c.mintSoft,
   },
-  stopButtonText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#DC2626',
-  },
-  flexibleRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  arrivedButton: {
-    flex: 1,
-    flexDirection: 'row',
+  voice: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
+    backgroundColor: c.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: COLORS.primary,
-    paddingVertical: 14,
-    borderRadius: 18,
+    ...shadows.card,
   },
-  arrivedButtonText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  extendButton: {
-    flexDirection: 'row',
+  stop: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
+    backgroundColor: c.urgentSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    backgroundColor: COLORS.accentSoft,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 18,
-  },
-  extendButtonText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: COLORS.primary,
-  },
-  offRouteBanner: {
-    marginTop: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: '#FEF3C7',
-  },
-  offRouteText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#92400E',
-    textAlign: 'center',
   },
 });

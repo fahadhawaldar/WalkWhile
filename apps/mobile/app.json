@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "scheme": "walkwhile",
     "splash": {
       "backgroundColor": "#1B4332"
@@ -14,7 +14,11 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "WalkWhile uses your location to discover safe, circular walking routes from your exact starting point and monitor your return trip.",
-        "NSMotionUsageDescription": "WalkWhile counts your steps during a walk."
+        "NSMotionUsageDescription": "WalkWhile counts your steps during a walk.",
+        "UIBackgroundModes": [
+          "location",
+          "audio"
+        ]
       },
       "bundleIdentifier": "com.fahadhdev.walkwhile"
     },
@@ -35,7 +39,11 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "WalkWhile uses your location to discover safe, circular walking routes from your exact starting point and monitor your return trip."
+          "locationWhenInUsePermission": "WalkWhile uses your location to discover safe, circular walking routes from your exact starting point and monitor your return trip.",
+          "locationAlwaysAndWhenInUsePermission": "WalkWhile keeps tracking your walk with the screen off, so it can speak turns and tell you when to head back.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       [

@@ -1,23 +1,19 @@
 import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Footprints, Route, Timer, Trash2 } from 'lucide-react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Trash2 } from 'lucide-react-native';
 import { WalkingRoute } from '@walkwhile/shared';
 import { UniversalMap } from '../../src/components/UniversalMap';
 import { formatWalkDate, outcomeBadge } from '../../src/history/format';
 import { deleteWalk, getWalk, HistoryWalk } from '../../src/history/walkHistory';
-import { COLORS } from '../../src/theme/colors';
+import { AppText } from '../../src/components/ui/AppText';
+import { Button } from '../../src/components/ui/Button';
+import { layout, Palette, radius, shadows, spacing, useColors, useThemedStyles } from '../../src/theme';
 import { formatDistance, formatDuration } from '../../src/utils/location';
 
 export default function WalkDetailScreen() {
+  const c = useColors();
+  const styles = useThemedStyles(makeStyles);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [walk, setWalk] = useState<HistoryWalk | null | undefined>(undefined);
@@ -31,19 +27,19 @@ export default function WalkDetailScreen() {
   if (walk === undefined) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={COLORS.primary} />
+        <ActivityIndicator color={c.inkTertiary} />
       </View>
     );
   }
   if (walk === null) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.missing}>This walk couldn't be loaded.</Text>
+        <AppText variant="subhead">This walk couldn't be loaded.</AppText>
       </View>
     );
   }
 
-  const badge = outcomeBadge(walk);
+  const badge = outcomeBadge(walk, c);
   // The map draws WalkingRoutes; a saved walk only keeps the line itself.
   const route: WalkingRoute | null =
     walk.routeCoordinates.length > 1
@@ -78,137 +74,112 @@ export default function WalkDetailScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      contentInsetAdjustmentBehavior="automatic"
+    >
+      <Stack.Screen options={{ title: formatWalkDate(walk.startedAt) }} />
+
       <View style={styles.headerRow}>
-        <Text style={styles.date}>{formatWalkDate(walk.startedAt)}</Text>
         <View style={[styles.badge, { backgroundColor: badge.background }]}>
-          <Text style={[styles.badgeText, { color: badge.color }]}>{badge.label}</Text>
+          <AppText variant="footnote" color={badge.color} style={{ fontWeight: '700' }}>
+            {badge.label}
+          </AppText>
         </View>
+        <AppText variant="footnote">
+          {walk.waitType === 'flexible' ? 'Someone was coming' : 'Exact-time wait'} ·{' '}
+          {Math.round(walk.plannedMinutes)} min planned
+        </AppText>
       </View>
-      <Text style={styles.subtitle}>
-        {walk.waitType === 'flexible' ? 'Someone was coming' : 'Exact-time wait'} ·{' '}
-        {Math.round(walk.plannedMinutes)} min planned
-      </Text>
 
       {route && (
-        <UniversalMap origin={walk.origin} routes={[route]} selectedRouteIndex={0} height={260} />
+        <View style={styles.map}>
+          <UniversalMap origin={walk.origin} routes={[route]} selectedRouteIndex={0} height={280} />
+        </View>
       )}
 
       <View style={styles.stats}>
-        <View style={styles.statCell}>
-          <Route size={18} color={COLORS.primary} />
-          <Text style={styles.statValue}>{formatDistance(walk.distanceMeters)}</Text>
-          <Text style={styles.statLabel}>distance</Text>
-        </View>
-        <View style={styles.statCell}>
-          <Timer size={18} color={COLORS.primary} />
-          <Text style={styles.statValue}>{formatDuration(walk.durationSeconds)}</Text>
-          <Text style={styles.statLabel}>time</Text>
-        </View>
-        <View style={styles.statCell}>
-          <Footprints size={18} color={COLORS.primary} />
-          <Text style={styles.statValue}>{walk.steps.toLocaleString()}</Text>
-          <Text style={styles.statLabel}>steps</Text>
-        </View>
+        <Stat value={formatDistance(walk.distanceMeters)} label="distance" />
+        <View style={styles.divider} />
+        <Stat value={formatDuration(walk.durationSeconds)} label="time" />
+        <View style={styles.divider} />
+        <Stat value={walk.steps.toLocaleString()} label="steps" />
       </View>
 
       {walk.pending && (
-        <Text style={styles.pending}>Saved on this phone, not synced to your account yet.</Text>
+        <AppText variant="caption" style={{ textAlign: 'center' }}>
+          Saved on this phone, not synced to your account yet.
+        </AppText>
       )}
 
-      <TouchableOpacity style={styles.deleteButton} onPress={confirmDelete} activeOpacity={0.85}>
-        <Trash2 size={16} color={COLORS.urgent} />
-        <Text style={styles.deleteText}>Delete walk</Text>
-      </TouchableOpacity>
+      <Button
+        title="Delete walk"
+        variant="danger"
+        onPress={confirmDelete}
+        icon={<Trash2 size={16} color={c.urgent} />}
+        style={{ marginTop: spacing.lg }}
+      />
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
+function Stat({ value, label }: { value: string; label: string }) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={styles.stat}>
+      <AppText variant="number">{value}</AppText>
+      <AppText variant="caption">{label}</AppText>
+    </View>
+  );
+}
+
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: c.background,
   },
   content: {
-    padding: 16,
-    gap: 14,
+    padding: layout.screenPadding,
+    gap: spacing.lg,
   },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.background,
-  },
-  missing: {
-    fontSize: 15,
-    color: COLORS.textSecondary,
+    backgroundColor: c.background,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  date: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: COLORS.textPrimary,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    marginTop: -8,
+    gap: spacing.sm,
   },
   badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+    borderRadius: radius.full,
   },
-  badgeText: {
-    fontSize: 12,
-    fontWeight: '800',
+  map: {
+    borderRadius: radius.lg,
+    overflow: 'hidden',
   },
   stats: {
     flexDirection: 'row',
-    backgroundColor: COLORS.surface,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingVertical: 16,
+    paddingVertical: spacing.lg,
+    backgroundColor: c.surface,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
+    ...shadows.card,
   },
-  statCell: {
+  stat: {
     flex: 1,
     alignItems: 'center',
-    gap: 4,
+    gap: spacing.xxs,
   },
-  statValue: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: COLORS.textPrimary,
-  },
-  statLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.textMuted,
-  },
-  pending: {
-    fontSize: 13,
-    color: COLORS.textMuted,
-    textAlign: 'center',
-  },
-  deleteButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: '#FCA5A5',
-    backgroundColor: '#FEF2F2',
-  },
-  deleteText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: COLORS.urgent,
+  divider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: 'stretch',
+    backgroundColor: c.separator,
   },
 });
