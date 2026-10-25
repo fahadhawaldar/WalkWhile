@@ -12,6 +12,8 @@
     "test": "npm run --workspaces --if-present test",
     "lint": "npm run --workspaces --if-present lint",
     "api": "npm run --workspace=apps/api dev",
+    "render:build": "npm ci --include=dev --ignore-scripts -w @walkwhile/api -w @walkwhile/shared && npm run build -w @walkwhile/shared",
+    "render:start": "npm run serve -w @walkwhile/api",
     "typecheck": "npm run --workspaces --if-present typecheck"
   },
   "devDependencies": {
